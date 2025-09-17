@@ -5,6 +5,7 @@
 #include <nds/system.h>
 
 #include "nvram.h"
+#include "string.h"
 
 static u8 readwriteSPI(u8 data) {
 	REG_SPIDATA = data;
