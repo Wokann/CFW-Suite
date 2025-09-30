@@ -12,6 +12,35 @@ PrintConsole *console;
 
 static unsigned char flashing = 0;
 
+void waitForKeyPress(int key) {
+    // 等待指定按键释放
+    do {
+        scanKeys();
+        swiWaitForVBlank();
+    } while(keysHeld() & key);
+    
+    // 等待指定按键按下
+    do {
+        scanKeys();
+        swiWaitForVBlank();
+    } while(!(keysHeld() & key));
+    
+    // 等待按键释放
+    do {
+        scanKeys();
+        swiWaitForVBlank();
+    } while(keysHeld() & key);
+}
+
+void startFlash(unsigned char *firmware, unsigned int address, unsigned int endAddress) {
+	consoleClear();
+	printf("\n Flashing firmware!\n\n Keep SL1 terminal shorted to\n progress.\n");
+	flashing = 1;
+	fifoSendValue32(FIFO_USER_01, (u32)firmware);
+	fifoSendValue32(FIFO_USER_01, address);
+	fifoSendValue32(FIFO_USER_01, endAddress);
+}
+
 void firmwareRead(unsigned int address, unsigned char *destination, size_t length) {
 	fifoSendValue32(FIFO_USER_03, address);
 	fifoSendValue32(FIFO_USER_03, (u32)destination);
@@ -34,13 +63,6 @@ unsigned char writePM(unsigned char channel, unsigned char data) {
     return (unsigned char)fifoGetValue32(FIFO_USER_06);
 }
 
-void startFlash(unsigned char *firmware) {
-	consoleClear();
-	printf("\n Flashing firmware!\n\n Keep SL1 terminal shorted to\n progress.\n");
-	flashing = 1;
-	fifoSendValue32(FIFO_USER_01, (u32)firmware);
-}
-
 unsigned char is512firmware(unsigned char system) {
 	if (system == 0x43 || system == 0x63 || system == 0x35)
 		return 1;
@@ -48,14 +70,15 @@ unsigned char is512firmware(unsigned char system) {
 }
 
 int main(void) {
+Begin:
 	console = consoleDemoInit();
 	
-	printf("\n fwManager - CTurt\n");
-	printf(" =================\n\n");
+	printf("\n fwManager - CTurt & Wokann\n");
+	printf(" ==========================\n\n");
 	if (isDSiMode()) {
 		printf(" Cannot use on DSi/3DS!\n");
 		while(1) swiWaitForVBlank();
-	} //let's be honest, we all know this is for fat DSes and lites, this check only gives me errors when compiling the soft
+	}
 	
 	printf(" Warning!\n This tool may damage your\n system! Use at your own risk!\n\n");
 	
@@ -64,19 +87,7 @@ int main(void) {
 	}
 	
 	printf("\n Press A to continue.");
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(keysHeld() & KEY_A);
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(!(keysHeld() & KEY_A));
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(keysHeld() & KEY_A);
+	waitForKeyPress(KEY_A);
 
 FirmwareSelect:
 	consoleClear();
@@ -84,77 +95,6 @@ FirmwareSelect:
 	if(!firmwareFilename) {
 		while(1) swiWaitForVBlank();
 	}
-
-	// 定义烧录选项枚举
-	typedef enum {
-		RESERVE_WIFI_CALIBRATION,   		// 保留wifi校准数据
-		RESERVE_WIFI_CA_WIFI_SETTINGS, 		// 保留wifi校准数据、WiFi设置
-		RESERVE_WIFI_CA_USER_SETTINGS, 		// 保留wifi校准数据、user设置
-		RESERVE_WIFI_CA_WIFI_USER_SETTINGS, // 保留wifi校准数据、WiFi及user设置
-		FLASH_COMPLETE,    					// 烧录全部
-		FLASH_OPTION_COUNT     				// 选项总数
-	} FlashOption;
-
-	printf("\n Select flash option:\n\n");
-	printf(" >Reserve Wifi Calibration only\n");
-	printf("  Reserve Wifi Ca. & Wifi Settings\n");
-	printf("  Reserve Wifi Ca. & User Settings\n");
-	printf("  Reserve Wifi Ca. & Wifi&User Settings\n");
-	printf("  Flash complete firmware\n\n");
-
-	int modeSelect = RESERVE_WIFI_CALIBRATION;
-	// 菜单循环
-	while(1) {
-		scanKeys();
-		u16 keys = keysDown();
-		
-		// 处理上下键 - 支持循环切换
-		if (keys & KEY_UP) {
-			modeSelect = (modeSelect - 1 + FLASH_OPTION_COUNT) % FLASH_OPTION_COUNT;
-		}
-		if (keys & KEY_DOWN) {
-			modeSelect = (modeSelect + 1) % FLASH_OPTION_COUNT;
-		}
-		
-		// 确认选择
-		if (keys & KEY_A) {
-			break;
-		}
-		// 确认选择
-		if (keys & KEY_B) {
-			goto FirmwareSelect;
-		}
-		
-		// 更新菜单显示
-		consoleClear();
-		printf("\n Select flash option:\n\n");
-		
-		// 显示所有选项，当前选中的前面加">"
-		for (int i = 0; i < FLASH_OPTION_COUNT; i++) {
-			printf(" %s", i == modeSelect ? ">" : " ");
-			
-			switch(i) {
-				case RESERVE_WIFI_CALIBRATION:
-					printf("Reserve Wifi Calibration only\n");
-					break;
-				case RESERVE_WIFI_CA_WIFI_SETTINGS:
-					printf("Reserve Wifi Ca. & Wifi Settings\n");
-					break;
-				case RESERVE_WIFI_CA_USER_SETTINGS:
-					printf("Reserve Wifi Ca. & User Settings\n");
-					break;
-				case RESERVE_WIFI_CA_WIFI_USER_SETTINGS:
-					printf("Reserve Wifi Ca. & Wifi&User Settings\n");
-					break;
-				case FLASH_COMPLETE:
-					printf("Flash complete firmware\n");
-					break;
-			}
-		}
-		swiWaitForVBlank();  // 重要：等待垂直空白，确保显示更新
-	}
-	
-	consoleClear();
 
 	FILE *f = fopen(firmwareFilename, "rb");
 	if(!f) {
@@ -172,97 +112,271 @@ FirmwareSelect:
 		printf(" Firmware is too large!\n");
 		while(1) swiWaitForVBlank();
 	}
+
+FlashOption:
+	// 定义烧录选项标志位
+	typedef enum {
+		OPTION_RESERVE_WIFI_CALIBRATION = (1 << 0),   // 保留wifi校准数据
+		OPTION_RESERVE_WIFI_SETTINGS    = (1 << 1),   // 保留WiFi设置
+		OPTION_RESERVE_USER_SETTINGS    = (1 << 2),   // 保留user设置
+		OPTION_FLASH_WIFI_CALIBRATION   = (1 << 3),   // 仅刷写wifi校准数据
+		OPTION_FLASH_WIFI_SETTINGS      = (1 << 4),   // 仅刷写WiFi设置
+		OPTION_FLASH_USER_SETTINGS      = (1 << 5),   // 仅刷写user设置
+	} FlashOption;
+
+	#define OPTION_FLASH_COMPLETE 0  // 烧录全部（不保留任何数据）
+	#define OPTION_RESERVE_MASK (OPTION_RESERVE_WIFI_CALIBRATION | OPTION_RESERVE_WIFI_SETTINGS | OPTION_RESERVE_USER_SETTINGS)
+	#define OPTION_FLASH_MASK (OPTION_FLASH_WIFI_CALIBRATION | OPTION_FLASH_WIFI_SETTINGS | OPTION_FLASH_USER_SETTINGS)
+
+	char optionNames[][32] = {
+		"Reserve old WiFiCalibration",
+		"Reserve old WiFi Settings", 
+		"Reserve old User Settings",
+		"Flash Complete Firmware",
+		"Flash new WiFi Calibration",
+		"Flash new WiFi Settings",
+		"Flash new User Settings",
+		"Confirm and Continue"
+	};
+
+	int optionCount = 8;  // 可选择的选项数量
+	int selectedOptions = OPTION_RESERVE_MASK;
+	int cursorPos = 0;
+
+	consoleClear();
+	printf("Select flash options:\n");
+	printf("(A: toggle B: back)\n");
+	printf(" ======Flash=New=Firmware======\n");
+
+	// 菜单循环
+	while(1) {
+		scanKeys();
+		u16 keys = keysDown();
+		
+		// 处理上下键
+		if (keys & KEY_UP) {
+			cursorPos = (cursorPos - 1 + optionCount) % optionCount;
+		}
+		if (keys & KEY_DOWN) {
+			cursorPos = (cursorPos + 1) % optionCount;
+		}
+		
+		// 处理A键 - 切换选项状态
+		if (keys & KEY_A) {
+			if (cursorPos < 3) {//保留选项
+				int optionBit = (1 << cursorPos);
+				if (selectedOptions & optionBit) {
+					selectedOptions &= ~optionBit;  // 取消选择
+				} else {
+					selectedOptions = (selectedOptions | optionBit) & OPTION_RESERVE_MASK;//确保仅刷写选项被排除
+				}
+			} else if (cursorPos == 3) {  // "烧录全部"选项
+				// 选择烧录全部时，清空所有保留选项
+				selectedOptions = OPTION_FLASH_COMPLETE;
+			} else if (cursorPos >= 4 && cursorPos <= 6) {//仅刷写选项
+				int optionBit = (1 << (cursorPos - 1));  // -1 跳过刷写全部的选项
+				if (selectedOptions & optionBit) {
+					selectedOptions &= ~optionBit;  // 取消选择
+				} else {
+					selectedOptions = (selectedOptions | optionBit) & OPTION_FLASH_MASK;//确保保留选项被排除
+				}
+			}
+			else if (cursorPos == 7) {// 确认设置
+				break;
+			}
+		}
+		
+		// B键返回
+		if (keys & KEY_B) {
+			fclose(f);
+			goto FirmwareSelect;
+		}
+		
+		// 更新菜单显示
+		consoleClear();
+		printf("Select flash options:\n");
+		printf("(A: toggle B: back)\n\n");
+		printf(" ======Flash=New=Firmware======\n");
+
+		// 显示保留选项区域
+		for (int i = 0; i < 4; i++) {
+			// 显示光标
+			printf("%s", i == cursorPos ? ">" : " ");
+			
+			if (i < 3) {
+				// 前三个是保留选项，显示选择状态
+				if (selectedOptions & (1 << i)) {
+					printf("[*]%s\n", optionNames[i]);
+				} else {
+					printf("[ ]%s\n", optionNames[i]);
+				}
+			} else {
+				// "烧录全部"选项
+				if (selectedOptions == OPTION_FLASH_COMPLETE) {
+					printf("[*]%s\n", optionNames[i]);
+				} else {
+					printf("[ ]%s\n", optionNames[i]);
+				}
+			}
+		}
+		
+		// 显示分割线
+		printf("\n ====Inject=To=Old=Firmware====\n");
+		
+		// 显示仅刷写选项区域
+		for (int i = 4; i < 7; i++) {
+			// 显示光标
+			printf("%s", i == cursorPos ? ">" : " ");
+			
+			// 仅刷写特定设置选项
+			if (selectedOptions & (1 << (i - 1))) {
+				printf("[*]%s\n", optionNames[i]);
+			} else {
+				printf("[ ]%s\n", optionNames[i]);
+			}
+		}
+		
+		// 显示分割线
+		printf("\n ==============================\n");
+		
+		// 显示确认选项
+		printf("%s%s\n", cursorPos == 7 ? ">" : " ", optionNames[7]);
+		
+		swiWaitForVBlank();  // 重要：等待垂直空白，确保显示更新
+	}
+	
+	consoleClear();
+	printf(" Applying your options...\n");
+
 	
 	//read originalFirmware
 	unsigned char *originalFirmware = malloc(0x80000); 
 	if(!originalFirmware) {
-		printf(" Malloc failed!\n");
+		printf("\n Malloc failed!\n");
 		while(1) swiWaitForVBlank();
 	}
 	memset(originalFirmware, 0xFF, 0x80000);
-	// 输出分配的内存地址
-	printf("oFW loca: 0x%08lX\n", (unsigned long)originalFirmware);
 	firmwareRead(0, originalFirmware, 0x200);
-	//for(int i = 0; i < 60 * 1 ; i++)
-	//	swiWaitForVBlank();
+	size_t originalsize = is512firmware(originalFirmware[0x1D]) == 0 ? 0x40000 : 0x80000;
+	firmwareRead(0, originalFirmware, originalsize);
+	/*
+	// 输出分配的内存地址
+	printf("\noFW loca: 0x%08lX", (unsigned long)originalFirmware);
+	// 输出固件的大小
+	printf("\noFW size: %s", originalsize == 0x40000 ? "256KB (0x40000)" : "512KB (0x80000)");
 	// 输出前0x20字节的十六进制值
-	printf("First 0x20 bytes:\n");
+	printf("\nFirst 0x20 bytes:");
 	for (int j = 0; j < 0x20; j++) {
 		printf("%02X", originalFirmware[j]);
 	}
-	size_t originalsize = is512firmware(originalFirmware[0x1D]) == 0 ? 0x40000 : 0x80000;
-	// 输出固件的大小
-	printf("oFW size: %s\n", originalsize == 0x40000 ? "256KB (0x40000)" : "512KB (0x80000)");
-	firmwareRead(0, originalFirmware, originalsize);
-	//for(int i = 0; i < 60 * 2 ; i++)
-	//	swiWaitForVBlank();
 	// 输出wifi部分0x20字节的十六进制值
-	printf("oFW wifi 0x20 bytes:\n");
+	printf("\noFW wifi 0x20 bytes:");
 	for (int j = 0; j < 0x20; j++) {
 		printf("%02X", originalFirmware[j + originalsize - 0x600 + 0xE0]);
 	}
+	// 输出user部分r0x20字节的十六进制值
+	printf("\noFW user 0x20 bytes:");
+	for (int j = 0; j < 0x20; j++) {
+		printf("%02X", originalFirmware[j + originalsize - 0x200]);
+	}
+	*/
 
-	//read firmware
+	//read newfirmware
 	unsigned char *firmware = malloc(0x80000); 
 	if(!firmware) {
-		printf(" Malloc failed!\n");
+		printf("\n Malloc failed!\n");
 		while(1) swiWaitForVBlank();
 	}
 	memset(firmware, 0xFF, 0x80000);
-	// 输出分配的内存地址
-	printf("nFW loca: 0x%08lX\n", (unsigned long)firmware);
 	rewind(f);
 	fread(firmware, size, 1, f);
 	fclose(f);
+	size_t newsize = is512firmware(firmware[0x1D]) == 0 ? 0x40000 : 0x80000;
+	unsigned int address = 0;
+	unsigned int endAddress = 0;
+
+	// 根据选择进行烧录设置
+	if (selectedOptions & OPTION_RESERVE_MASK) {
+		// 保留wifi校准数据
+		if (selectedOptions & OPTION_RESERVE_WIFI_CALIBRATION) {
+			for(int i = 0; i <= (0x163 - 0x2A); i++) {
+				firmware[i + 0x2A] = originalFirmware[i + 0x2A];
+			}
+		}
+		
+		// 保留wifi设置数据
+		if (selectedOptions & OPTION_RESERVE_WIFI_SETTINGS) {
+			for(int i = 0; i < 0x400; i++) {
+				firmware[i + newsize - 0x600] = originalFirmware[i + originalsize - 0x600];
+			}
+		}
+		
+		// 保留用户设置数据
+		if (selectedOptions & OPTION_RESERVE_USER_SETTINGS) {
+			for(int i = 0; i < 0x200; i++) {
+				firmware[i + newsize - 0x200] = originalFirmware[i + originalsize - 0x200];
+			}
+		}
+		address = 0;
+		endAddress = newsize;
+	} else if (selectedOptions == OPTION_FLASH_COMPLETE){
+		// 完全烧录，不保留任何数据
+		address = 0;
+		endAddress = newsize;
+	} else if (selectedOptions & OPTION_FLASH_MASK) {
+		address = originalsize - 0x200;
+		endAddress = 0x200;
+		// 导入wifi校准数据
+		if (selectedOptions & OPTION_FLASH_WIFI_CALIBRATION) {
+			for(int i = 0; i <= (0x163 - 0x2A); i++) {
+				originalFirmware[i + 0x2A] = firmware[i + 0x2A];
+			}
+			address = MIN(0, address);
+			endAddress = MAX(0x200, endAddress);
+		}
+		
+		// 导入wifi设置数据
+		if (selectedOptions & OPTION_FLASH_WIFI_SETTINGS) {
+			for(int i = 0; i < 0x400; i++) {
+				originalFirmware[i + originalsize - 0x600] = firmware[i + newsize - 0x600];
+			}
+			address = MIN(originalsize - 0x600, address);
+			endAddress = MAX(originalsize - 0x200, endAddress);
+		}
+		
+		// 导入用户设置数据
+		if (selectedOptions & OPTION_FLASH_USER_SETTINGS) {
+			for(int i = 0; i < 0x200; i++) {
+				originalFirmware[i + originalsize - 0x200] = firmware[i + newsize - 0x200];
+			}
+			address = MIN(originalsize - 0x200, address);
+			endAddress = MAX(originalsize, endAddress);
+		}
+	}
+
+	/*
+	// 输出分配的内存地址
+	printf("nFW loca: 0x%08lX\n", (unsigned long)firmware);
+	// 输出固件的大小
+	printf("nFW size: %s\n", newsize == 0x40000 ? "256KB (0x40000)" : "512KB (0x80000)");
 	// 输出前0x20字节的十六进制值
 	printf("First 0x20 bytes:\n");
 	for (int j = 0; j < 0x20; j++) {
 		printf("%02X", firmware[j]);
 	}
-	size_t newsize = is512firmware(firmware[0x1D]) == 0 ? 0x40000 : 0x80000;
-	// 输出固件的大小
-	printf("nFW size: %s\n", newsize == 0x40000 ? "256KB (0x40000)" : "512KB (0x80000)");
+	// 输出wifi部分0x20字节的十六进制值
+	printf("nFW wifi 0x20 bytes:\n");
+	for (int j = 0; j < 0x20; j++) {
+		printf("%02X", firmware[j + newsize - 0x600 + 0xE0]);
+	}
+	// 输出user部分0x20字节的十六进制值
+	printf("nFW user 0x20 bytes:\n");
+	for (int j = 0; j < 0x20; j++) {
+		printf("%02X", firmware[j + newsize - 0x200]);
+	}
+	*/
 
-	//reserve wi-fi and settings
-	int i;
-	if (modeSelect != FLASH_COMPLETE) {
-		for(i = 0; i < (0x163 - 0x2A); i++) {
-			firmware[i + 0x2A] = originalFirmware[i + 0x2A];
-		}
-	}
-	if (modeSelect == RESERVE_WIFI_CA_WIFI_SETTINGS || 
-		modeSelect == RESERVE_WIFI_CA_WIFI_USER_SETTINGS) {
-		for(i = 0; i < 0x400; i++) {
-			firmware[i + newsize - 0x600] = originalFirmware[i + originalsize - 0x600];
-		}
-		// 输出wifi部分0x20字节的十六进制值
-		//printf("oFW wifi 0x20 bytes:\n");
-		//for (int j = 0; j < 0x20; j++) {
-		//	printf("%02X", originalFirmware[j + originalsize - 0x600 + 0xE0]);
-		//}
-		// 输出wifi部分0x20字节的十六进制值
-		printf("nFW wifi 0x20 bytes:\n");
-		for (int j = 0; j < 0x20; j++) {
-			printf("%02X", firmware[j + newsize - 0x600 + 0xE0]);
-		}
-	}
-	if (modeSelect == RESERVE_WIFI_CA_USER_SETTINGS || 
-		modeSelect == RESERVE_WIFI_CA_WIFI_USER_SETTINGS) {
-		for(i = 0; i < 0x200; i++) {
-			firmware[i + newsize - 0x200] = originalFirmware[i + originalsize - 0x200];
-		}
-		// 输出wifi部分0x20字节的十六进制值
-		//printf("oFW wifi 0x20 bytes:\n");
-		//for (int j = 0; j < 0x20; j++) {
-		//	printf("%02X", originalFirmware[j + originalsize - 0x600 + 0xE0]);
-		//}
-		// 输出wifi部分0x20字节的十六进制值
-		printf("nFW user 0x20 bytes:\n");
-		for (int j = 0; j < 0x20; j++) {
-			printf("%02X", firmware[j + newsize - 0x200]);
-		}
-	}
-
+	/*
 	//Check console
 	unsigned int Hconsole = readPM(4);
 			printf("\nconsloe:%08X\n", Hconsole);
@@ -276,7 +390,7 @@ FirmwareSelect:
 		printf(" This firmware is for type %d (%s)\n", ((struct header *)firmware)->console, ((struct header *)firmware)->console == 0x57 ? "DSi" : "Unknown");
 		while(1) swiWaitForVBlank();
 	}
-	
+	*/
 	// To do: check boot CRC is correct
 	/*
 	unsigned short crc;
@@ -289,39 +403,35 @@ FirmwareSelect:
 	}
 	*/
 
-	do {
+	printf("\n Press START to flash.\n");
+	printf("\n Press B to go back.\n");
+	printf("\n Path:%s\n", firmwareFilename);
+
+	while(1) {
 		scanKeys();
+		u16 keys = keysDown();
+		
+		// 按START键开始烧录
+		if (keys & KEY_START) {
+			break;
+		}
+		
+		// 按B键返回flash option界面
+		if (keys & KEY_B) {
+			free(originalFirmware);
+			free(firmware);
+			goto FlashOption;
+		}
+		
 		swiWaitForVBlank();
-	} while(keysHeld() & KEY_START);
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(!(keysHeld() & KEY_START));
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(keysHeld() & KEY_START);
-	printf("\n Press Start to flash:\n\n %s\n\n", firmwareFilename);
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(keysHeld() & KEY_START);
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(!(keysHeld() & KEY_START));
-	
-	do {
-		scanKeys();
-		swiWaitForVBlank();
-	} while(keysHeld() & KEY_START);
-	
-	startFlash(firmware);
-	
+	}
+	if ((selectedOptions & OPTION_RESERVE_MASK) || (selectedOptions == OPTION_FLASH_COMPLETE)){
+		startFlash(firmware, address, endAddress);
+	}
+	else if (selectedOptions & OPTION_FLASH_MASK){
+		startFlash(originalFirmware, address, endAddress);
+	}
+
 	while(1) {
 		if(flashing) {
 			if(fifoCheckValue32(FIFO_USER_02)) {
@@ -329,15 +439,24 @@ FirmwareSelect:
 				
 				console->cursorX = 1;
 				console->cursorY = 6;
-				printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n\n", firmware[0x36],firmware[0x37],firmware[0x38],firmware[0x39],firmware[0x3A],firmware[0x3B]);
-				printf(" oFirmware type: %s\n", originalFirmware[0x1D] == 0xFF ? "DS phat" : originalFirmware[0x1D] == 0x20 ? "DS lite" : originalFirmware[0x1D] == 0x43 ? "iQue phat" : originalFirmware[0x1D] == 0x63 ? "iQue lite" : originalFirmware[0x1D] == 0x35 ? "Kor lite" : "Unknown");
-				printf(" oFirmware size: %s\n", is512firmware(originalFirmware[0x1D]) == 0 ? "256KB (0x40000)" : "512KB (0x80000)");
-				printf(" Firmware type: %s\n", firmware[0x1D] == 0xFF ? "DS phat" : firmware[0x1D] == 0x20 ? "DS lite" : firmware[0x1D] == 0x43 ? "iQue phat" : firmware[0x1D] == 0x63 ? "iQue lite" : firmware[0x1D] == 0x35 ? "Kor lite" : "Unknown");
-				printf(" Firmware size: %s\n", is512firmware(firmware[0x1D]) == 0 ? "256KB (0x40000)" : "512KB (0x80000)");
-				printf("\n Progress: %d%% (%d/%d)", (int)((double)progress / newsize * 100), progress, newsize);
+				if ((selectedOptions & OPTION_RESERVE_MASK) || (selectedOptions == OPTION_FLASH_COMPLETE)){
+					printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n\n", firmware[0x36],firmware[0x37],firmware[0x38],firmware[0x39],firmware[0x3A],firmware[0x3B]);
+				}
+				else if (selectedOptions & OPTION_FLASH_MASK){
+					printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n\n", originalFirmware[0x36],originalFirmware[0x37],originalFirmware[0x38],originalFirmware[0x39],originalFirmware[0x3A],originalFirmware[0x3B]);
+				}
+				printf(" oFW type: %s\n", originalFirmware[0x1D] == 0xFF ? "DS phat" : originalFirmware[0x1D] == 0x20 ? "DS lite" : originalFirmware[0x1D] == 0x43 ? "iQue phat" : originalFirmware[0x1D] == 0x63 ? "iQue lite" : originalFirmware[0x1D] == 0x35 ? "Kor lite" : "Unknown");
+				printf(" oFW size: %s\n", is512firmware(originalFirmware[0x1D]) == 0 ? "256KB (0x40000)" : "512KB (0x80000)");
+				printf(" nFW type: %s\n", firmware[0x1D] == 0xFF ? "DS phat" : firmware[0x1D] == 0x20 ? "DS lite" : firmware[0x1D] == 0x43 ? "iQue phat" : firmware[0x1D] == 0x63 ? "iQue lite" : firmware[0x1D] == 0x35 ? "Kor lite" : "Unknown");
+				printf(" nFW size: %s\n", is512firmware(firmware[0x1D]) == 0 ? "256KB (0x40000)" : "512KB (0x80000)");
+				printf("\n Progress: %d%% (%d/%d)", (int)((double)progress / endAddress * 100), progress, endAddress);
 				
-				if(progress == newsize) {
+				if(progress == endAddress) {
 					printf("\n\n Done!\n");
+					free(originalFirmware);
+					free(firmware);
+					printf("\n Press START to power off.\n");
+					printf(" Press B to softreset.\n");
 					flashing = 0;
 				}
 			}
@@ -345,10 +464,15 @@ FirmwareSelect:
 		
 		swiWaitForVBlank();
 		scanKeys();
+		if(!flashing) {
+			u16 keys = keysDown();
+			if (keys & KEY_START) {
+				break;
+			}
+			if (keys & KEY_B) {
+				goto Begin;
+			}
+		}
 	}
-	
-	free(originalFirmware);
-	free(firmware);
-	
 	return 0;
 }

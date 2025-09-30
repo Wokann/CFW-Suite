@@ -18,7 +18,7 @@ int writeFirmwarePage(u32 address,u8 *buffer) {
 	u8 pagebuffer[256];
 	readFirmware(address, pagebuffer, 256);
 	
-	if(memcmp(pagebuffer, buffer, 256) == 0) return 0;
+	if(memcmp(pagebuffer, buffer, 256) == 0) return 2;
 	
 	int oldIME = enterCriticalSection();
 	

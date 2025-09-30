@@ -6,19 +6,13 @@
 #include "interrupts.h"
 #include "nvram.h"
 
-static void wait(void) {
+static void wait(int vblanks) {
 	// without any delay at all, it will not flash correctly
 	// but 5 vblanks may not be necessary
 	// reduce this number at your own risk
 	
 	int i;
-	for(i = 0; i < 5; i++) swiWaitForVBlank();
-}
-
-unsigned char is512firmware2(unsigned char system) {
-	if (system == 0x43 || system == 0x63 || system == 0x35)
-		return 1;
-	return 0;
+	for(i = 0; i < vblanks; i++) swiWaitForVBlank();
 }
 //////////////////////////////////////////////////////////////////////
 
@@ -68,17 +62,23 @@ unsigned char PMwrite(unsigned char channel, unsigned char data) {
 	return ret;
 }
 
-void flash(unsigned char *firmware) {
-	unsigned int i = 0;
-	size_t size = is512firmware2(firmware[0x1D]) == 0 ? 0x40000 : 0x80000;
-	while(i < size) {
-		if(writeFirmwarePage(i, firmware + i)) {
-			wait();
-		}
-		else {
+void flash(unsigned char *firmware, unsigned int address, unsigned int endAddress) {
+	unsigned int i = address;
+	int result = 0;
+	while(i < endAddress) {
+		result = writeFirmwarePage(i, firmware + i);
+		if(!result) {
 			i += 256;
 			fifoSendValue32(FIFO_USER_02, i);
-			wait();
+			wait(5);
+		}
+		else if (result == 2){
+			i += 256;
+			fifoSendValue32(FIFO_USER_02, i);
+			wait(1);
+		}
+		else {
+			wait(5);
 		}
 	}
 }
@@ -104,7 +104,9 @@ int main(void) {
 	while(!quit) {
 		if(fifoCheckValue32(FIFO_USER_01)) {
 			unsigned char *firmware = (unsigned char *)fifoGetValue32(FIFO_USER_01);
-			flash(firmware);
+			unsigned int address = fifoGetValue32(FIFO_USER_01);
+			unsigned int endAddress = fifoGetValue32(FIFO_USER_01);
+			flash(firmware, address, endAddress);
 		}
 
 		if(fifoCheckValue32(FIFO_USER_03)) {
