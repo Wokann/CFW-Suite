@@ -23,4 +23,5 @@ struct header {
 	u16	unknown2;
 	u16	part5crc;
 	u16	unused2;
+	u8 wifiCalibration[0x1D6];
 };
