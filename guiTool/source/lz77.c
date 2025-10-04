@@ -25,6 +25,7 @@ LZ77 decompression code from Visual Boy Advance by Forgotten
 */
 
 #include "lz77.h"
+#include "encryption.h"
 
 #define N 4096 // size of ring buffer (12 bit)
 #define F 18 // upper limit for match_length
@@ -203,76 +204,76 @@ int CompressLZ77(const unsigned char *InBuf, unsigned char *OutBuf, int InSize) 
 	}
 	return OutSize;
 }
+/* Fixed LZ77 decompression function */
+void DecompressLZ77(const unsigned char *InBuf, unsigned char *OutBuf, int OutSize) {
+    int byteCount = 0;
+    int byteShift = 0;
+    u32 writeValue = 0;
+    int InBuf_pos = 4; // Skip LZ77 header
 
-void Decompress_LZ77(GET_DATA get_data, u8* dest, int len) {
- int byteCount = 0;
-  int byteShift = 0;
-  u32 writeValue = 0;
+    while (OutSize > 0) {
+        u8 d = InBuf[InBuf_pos++];
 
-	while(len > 0) {
-    u8 d = get_data.get_u8();
+        if (d) {
+            for (int i = 0; i < 8; i++) {
+                if (d & 0x80) {
+                    u16 data = InBuf[InBuf_pos++] << 8;
+                    data |= InBuf[InBuf_pos++];
+                    int length = (data >> 12) + 3;
+                    int offset = (data & 0x0FFF);
+                    u8* windowOffset = OutBuf + byteCount - offset - 1;
+                    for (int j = 0; j < length; j++) {
+                        writeValue |= (*(windowOffset++) << byteShift);
+                        byteShift += 8;
+                        byteCount++;
 
-    if(d) {
-      for(int i = 0; i < 8; i++) {
-        if(d & 0x80) {
-          u16 data = get_data.get_u8() << 8;
-          data |= get_data.get_u8();
-          int length = (data >> 12) + 3;
-          int offset = (data & 0x0FFF);
-          u8* windowOffset = dest + byteCount - offset - 1;
-          for(int i = 0; i < length; i++) {
-            writeValue |= (*(windowOffset++) << byteShift);
-            byteShift += 8;
-            byteCount++;
-
-            if(byteCount == 2) {
-              dest[0] = (u8)writeValue;
-			  dest[1] = (u8)(writeValue >> 8);
-              dest += 2;
-              byteCount = 0;
-              byteShift = 0;
-              writeValue = 0;
+                        if (byteCount == 2) {
+                            OutBuf[0] = (u8)writeValue;
+                            OutBuf[1] = (u8)(writeValue >> 8);
+                            OutBuf += 2;
+                            byteCount = 0;
+                            byteShift = 0;
+                            writeValue = 0;
+                        }
+                        OutSize--;
+                        if (OutSize == 0)
+                            return;
+                    }
+                } else {
+                    writeValue |= (InBuf[InBuf_pos++] << byteShift);
+                    byteShift += 8;
+                    byteCount++;
+                    if (byteCount == 2) {
+                        OutBuf[0] = (u8)writeValue;
+                        OutBuf[1] = (u8)(writeValue >> 8);
+                        OutBuf += 2;
+                        byteCount = 0;
+                        byteShift = 0;
+                        writeValue = 0;
+                    }
+                    OutSize--;
+                    if (OutSize == 0)
+                        return;
+                }
+                d <<= 1;
             }
-            len--;
-            if(len == 0)
-              return;
-          }
         } else {
-          writeValue |= (get_data.get_u8() << byteShift);
-          byteShift += 8;
-          byteCount++;
-          if(byteCount == 2) {
-              dest[0] = (u8)writeValue;
-			  dest[1] = (u8)(writeValue >> 8);
-            dest += 2;
-            byteCount = 0;
-            byteShift = 0;
-            writeValue = 0;
-          }
-          len--;
-          if(len == 0)
-            return;
+            for (int i = 0; i < 8; i++) {
+                writeValue |= (InBuf[InBuf_pos++] << byteShift);
+                byteShift += 8;
+                byteCount++;
+                if (byteCount == 2) {
+                    OutBuf[0] = (u8)writeValue;
+                    OutBuf[1] = (u8)(writeValue >> 8);
+                    OutBuf += 2;
+                    byteShift = 0;
+                    byteCount = 0;
+                    writeValue = 0;
+                }
+                OutSize--;
+                if (OutSize == 0)
+                    return;
+            }
         }
-        d <<= 1;
-      }
-    } else {
-      for(int i = 0; i < 8; i++) {
-        writeValue |= (get_data.get_u8() << byteShift);
-        byteShift += 8;
-        byteCount++;
-        if(byteCount == 2) {
-              dest[0] = (u8)writeValue;
-			  dest[1] = (u8)(writeValue >> 8);
-          dest += 2;
-          byteShift = 0;
-          byteCount = 0;
-          writeValue = 0;
-        }
-        len--;
-        if(len == 0)
-          return;
-      }
     }
-  }
 }
-    

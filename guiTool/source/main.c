@@ -17,8 +17,6 @@
 #include "crc.h"
 #include "encryption.h"
 #include "lz77.h"
-#include "get_encrypted_data.h"
-#include "get_normal_data.h"
 
 // Platform-specific macro definitions
 #ifdef _WIN32
@@ -117,10 +115,12 @@ static void help(char *name) {
     printf("  Inject mode:  %s firmware.bin -i base_folder output_firmware.bin\n", name);
     printf("Folder structure:\n");
     printf("  base_folder/\n");
-    printf("  й└йд01_raw/\n");
-    printf("  й└йд02_decompressed/\n");
-    printf("  й└йд03_modified_decompressed/\n");
-    printf("  й╕йд04_modified_compressed/\n");
+    printf("  й└йд1-1_raw/\n");
+    printf("  й└йд1-2_decrypted/\n");
+    printf("  й└йд1-3_decompressed/\n");
+    printf("  й└йд2-1_modified_unpacked/\n");
+    printf("  й└йд2-2_modified_compressed/\n");
+    printf("  й╕йд2-3_modified_encrypted/\n");
 }
 
 /**
@@ -169,82 +169,11 @@ static size_t calculate_partition_size(u32 offset, const PartitionSizeParams* pa
 int main(int argc, char **argv) {
     // Operation mode and path constants
     enum { unspecified, extract, inject } mode = unspecified;
-    const char *subfolders[4] = {
-        "01_raw",
-        "02_decompressed",
-        "03_modified_decompressed",
-        "04_modified_compressed"
-    };
-    const char *filenames[5] = {
-        "arm9_boot_code.bin",    // Part1
-        "arm7_boot_code.bin",    // Part2
-        "arm9_gui_code.bin",     // Part3
-        "arm7_wifi_code.bin",    // Part4
-        "data_gfx.bin"           // Part5
-    };
-    const char *full_part_names[5] = {
-        "ARM9 boot code partition (Part1)",
-        "ARM7 boot code partition (Part2)",
-        "ARM9 GUI code partition (Part3)",
-        "ARM7 WiFi code partition (Part4)",
-        "Graphics data partition (Part5)"
-    };
-    const size_t ALIGNMENT = 8;  // 8-byte alignment required for firmware
 
     // Input/output parameters
     char *firmwareFilename = NULL;
     char *base_folder = NULL;
     char *output_firmwareFilename = NULL;
-    
-    // Firmware data
-    u8 *firmware = NULL;
-    size_t firmware_size = 0;
-    FILE *f = NULL;
-    
-    // Raw partition offsets in firmware
-    u32 raw_arm9_boot_code_offset = 0;    // Part1 offset in firmware
-    u32 raw_arm7_boot_code_offset = 0;    // Part2 offset in firmware
-    u32 raw_arm9_gui_code_offset = 0;     // Part3 offset in firmware
-    u32 raw_arm7_wifi_code_offset = 0;    // Part4 offset in firmware
-    u32 raw_data_gfx_offset = 0;          // Part5 offset in firmware
-    
-    // Path variables
-    char *raw_arm9_boot_code_path = NULL, *raw_arm7_boot_code_path = NULL;
-    char *raw_arm9_gui_code_path = NULL, *raw_arm7_wifi_code_path = NULL, *raw_data_gfx_path = NULL;
-    
-    char *decomp_arm9_boot_code_path = NULL, *decomp_arm7_boot_code_path = NULL;
-    char *decomp_arm9_gui_code_path = NULL, *decomp_arm7_wifi_code_path = NULL, *decomp_data_gfx_path = NULL;
-    
-    char *modified_decomp_arm9_boot_code_path = NULL, *modified_decomp_arm7_boot_code_path = NULL;
-    char *modified_decomp_arm9_gui_code_path = NULL, *modified_decomp_arm7_wifi_code_path = NULL;
-    char *modified_decomp_data_gfx_path = NULL;
-    
-    char *modified_comp_arm9_boot_code_path = NULL, *modified_comp_arm7_boot_code_path = NULL;
-    char *modified_comp_arm9_gui_code_path = NULL, *modified_comp_arm7_wifi_code_path = NULL;
-    char *modified_comp_data_gfx_path = NULL;
-    
-    // Data buffers - only keep variables used in current mode to eliminate unused warnings
-    u8 *raw_arm9_boot_code = NULL, *raw_arm7_boot_code = NULL;
-    u8 *raw_arm9_gui_code = NULL, *raw_arm7_wifi_code = NULL, *raw_data_gfx = NULL;
-    size_t raw_arm9_boot_code_size = 0, raw_arm7_boot_code_size = 0;
-    size_t raw_arm9_gui_code_size = 0, raw_arm7_wifi_code_size = 0, raw_data_gfx_size = 0;
-    
-    u8 *decompressed_arm9_boot_code = NULL, *decompressed_arm7_boot_code = NULL;
-    u8 *decompressed_arm9_gui_code = NULL, *decompressed_arm7_wifi_code = NULL, *decompressed_data_gfx = NULL;
-    size_t decompressed_arm9_boot_code_size = 0, decompressed_arm7_boot_code_size = 0;
-    size_t decompressed_arm9_gui_code_size = 0, decompressed_arm7_wifi_code_size = 0;
-    size_t decompressed_data_gfx_size = 0;
-    
-    // Variables used only in injection mode
-    u8 *modified_decompressed_arm9_gui_code = NULL, *modified_decompressed_arm7_wifi_code = NULL;
-    u8 *modified_decompressed_data_gfx = NULL;
-    size_t modified_decompressed_arm9_gui_code_size = 0, modified_decompressed_arm7_wifi_code_size = 0;
-    size_t modified_decompressed_data_gfx_size = 0;
-    
-    u8 *compressed_arm9_gui_code = NULL, *compressed_arm7_wifi_code = NULL, *compressed_data_gfx = NULL;
-    size_t compressed_arm9_gui_code_size = 0, compressed_arm7_wifi_code_size = 0, compressed_data_gfx_size = 0;
-    size_t aligned_arm9_gui_code_size = 0, aligned_arm7_wifi_code_size = 0, aligned_data_gfx_size = 0;
-
     // Parse command line arguments
     if (argc == 4 && strcmp(argv[2], "-e") == 0) {
         mode = extract;
@@ -262,8 +191,31 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    const char *subfolders[6] = {
+        "1-1_raw",
+        "1-2_decrypted",
+        "1-3_decompressed",
+        "2-1_modified_unpacked",
+        "2-2_modified_compressed",
+        "2-3_modified_encrypted"
+    };
+    const char *filenames[5] = {
+        "arm9_boot_code.bin",    // Part1
+        "arm7_boot_code.bin",    // Part2
+        "arm9_gui_code.bin",     // Part3
+        "arm7_wifi_code.bin",    // Part4
+        "data_gfx.bin"           // Part5
+    };
+    const char *full_part_names[5] = {
+        "ARM9 boot code partition (Part1)",
+        "ARM7 boot code partition (Part2)",
+        "ARM9 GUI code partition (Part3)",
+        "ARM7 WiFi code partition (Part4)",
+        "Graphics data partition (Part5)"
+    };
+
     // Create all required subdirectories
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
         char *folder_path = malloc(strlen(base_folder) + strlen(subfolders[i]) + 2);
         snprintf(folder_path, strlen(base_folder) + strlen(subfolders[i]) + 2, 
                  "%s/%s", base_folder, subfolders[i]);
@@ -275,32 +227,138 @@ int main(int argc, char **argv) {
         }
         free(folder_path);
     }
+    
+    // Path variables
+    // Path variables 1-1
+    char *raw_arm9_boot_code_path = NULL;
+    char *raw_arm7_boot_code_path = NULL;
+    char *raw_arm9_gui_code_path = NULL;
+    char *raw_arm7_wifi_code_path = NULL;
+    char *raw_data_gfx_path = NULL;
+    // Path variables 1-2
+    char *decrypted_arm9_boot_code_path = NULL;
+    char *decrypted_arm7_boot_code_path = NULL;
+    // Path variables 1-3
+    char *decompressed_arm9_boot_code_path = NULL;
+    char *decompressed_arm7_boot_code_path = NULL;
+    char *decompressed_arm9_gui_code_path = NULL;
+    char *decompressed_arm7_wifi_code_path = NULL;
+    char *decompressed_data_gfx_path = NULL;
+    // Path variables 2-1
+    char *modified_unpacked_arm9_boot_code_path = NULL;
+    char *modified_unpacked_arm7_boot_code_path = NULL;
+    char *modified_unpacked_arm9_gui_code_path = NULL;
+    char *modified_unpacked_arm7_wifi_code_path = NULL;
+    char *modified_unpacked_data_gfx_path = NULL;
+    // Path variables 2-2
+    char *modified_compressed_arm9_boot_code_path = NULL;
+    char *modified_compressed_arm7_boot_code_path = NULL;
+    char *modified_compressed_arm9_gui_code_path = NULL;
+    char *modified_compressed_arm7_wifi_code_path = NULL;
+    char *modified_compressed_data_gfx_path = NULL;
+    // Path variables 2-3
+    char *modified_encrypted_arm9_boot_code_path = NULL;
+    char *modified_encrypted_arm7_boot_code_path = NULL;
+    
+    // Data buffers
+    // Data buffers 1-1
+    u8 *raw_arm9_boot_code = NULL;
+    u8 *raw_arm7_boot_code = NULL;
+    u8 *raw_arm9_gui_code = NULL;
+    u8 *raw_arm7_wifi_code = NULL;
+    u8 *raw_data_gfx = NULL;
+    size_t raw_arm9_boot_code_size = 0;
+    size_t raw_arm7_boot_code_size = 0;
+    size_t raw_arm9_gui_code_size = 0;
+    size_t raw_arm7_wifi_code_size = 0;
+    size_t raw_data_gfx_size = 0;
+    // Data buffers 1-2
+    u8 *decrypted_arm9_boot_code = NULL;
+    u8 *decrypted_arm7_boot_code = NULL;
+    size_t decrypted_arm9_boot_code_size = 0;
+    size_t decrypted_arm7_boot_code_size = 0;
+    // Data buffers 1-3
+    u8 *decompressed_arm9_boot_code = NULL;
+    u8 *decompressed_arm7_boot_code = NULL;
+    u8 *decompressed_arm9_gui_code = NULL;
+    u8 *decompressed_arm7_wifi_code = NULL;
+    u8 *decompressed_data_gfx = NULL;
+    size_t decompressed_arm9_boot_code_size = 0;
+    size_t decompressed_arm7_boot_code_size = 0;
+    size_t decompressed_arm9_gui_code_size = 0;
+    size_t decompressed_arm7_wifi_code_size = 0;
+    size_t decompressed_data_gfx_size = 0;
+    // Data buffers 2-1
+    u8 *modified_unpacked_arm9_boot_code = NULL;
+    u8 *modified_unpacked_arm7_boot_code = NULL;
+    u8 *modified_unpacked_arm9_gui_code = NULL;
+    u8 *modified_unpacked_arm7_wifi_code = NULL;
+    u8 *modified_unpacked_data_gfx = NULL;
+    size_t modified_unpacked_arm9_boot_code_size = 0;
+    size_t modified_unpacked_arm7_boot_code_size = 0;
+    size_t modified_unpacked_arm9_gui_code_size = 0;
+    size_t modified_unpacked_arm7_wifi_code_size = 0;
+    size_t modified_unpacked_data_gfx_size = 0;
+    // Data buffers 2-2
+    u8 *modified_compressed_arm9_boot_code = NULL;
+    u8 *modified_compressed_arm7_boot_code = NULL;
+    u8 *modified_compressed_arm9_gui_code = NULL;
+    u8 *modified_compressed_arm7_wifi_code = NULL;
+    u8 *modified_compressed_data_gfx = NULL;
+    size_t modified_compressed_arm9_boot_code_size = 0;
+    size_t modified_compressed_arm7_boot_code_size = 0;
+    size_t modified_compressed_arm9_gui_code_size = 0;
+    size_t modified_compressed_arm7_wifi_code_size = 0;
+    size_t modified_compressed_data_gfx_size = 0;
+    // Data buffers 2-3
+    u8 *modified_encrypted_arm9_boot_code = NULL;
+    u8 *modified_encrypted_arm7_boot_code = NULL;
+    size_t modified_encrypted_arm9_boot_code_size = 0;
+    size_t modified_encrypted_arm7_boot_code_size = 0;
+
+    // for repack
+    size_t aligned_arm9_boot_code_size = 0;
+    size_t aligned_arm7_boot_code_size = 0;
+    size_t aligned_arm9_gui_code_size = 0;
+    size_t aligned_arm7_wifi_code_size = 0;
+    size_t aligned_data_gfx_size = 0;
 
     // Generate full paths for all files
+    // 1-1
     raw_arm9_boot_code_path = get_full_path(base_folder, subfolders[0], filenames[0]);
     raw_arm7_boot_code_path = get_full_path(base_folder, subfolders[0], filenames[1]);
     raw_arm9_gui_code_path = get_full_path(base_folder, subfolders[0], filenames[2]);
     raw_arm7_wifi_code_path = get_full_path(base_folder, subfolders[0], filenames[3]);
     raw_data_gfx_path = get_full_path(base_folder, subfolders[0], filenames[4]);
-    
-    decomp_arm9_boot_code_path = get_full_path(base_folder, subfolders[1], filenames[0]);
-    decomp_arm7_boot_code_path = get_full_path(base_folder, subfolders[1], filenames[1]);
-    decomp_arm9_gui_code_path = get_full_path(base_folder, subfolders[1], filenames[2]);
-    decomp_arm7_wifi_code_path = get_full_path(base_folder, subfolders[1], filenames[3]);
-    decomp_data_gfx_path = get_full_path(base_folder, subfolders[1], filenames[4]);
-    
-    modified_decomp_arm9_boot_code_path = get_full_path(base_folder, subfolders[2], filenames[0]);
-    modified_decomp_arm7_boot_code_path = get_full_path(base_folder, subfolders[2], filenames[1]);
-    modified_decomp_arm9_gui_code_path = get_full_path(base_folder, subfolders[2], filenames[2]);
-    modified_decomp_arm7_wifi_code_path = get_full_path(base_folder, subfolders[2], filenames[3]);
-    modified_decomp_data_gfx_path = get_full_path(base_folder, subfolders[2], filenames[4]);
-    
-    modified_comp_arm9_boot_code_path = get_full_path(base_folder, subfolders[3], filenames[0]);
-    modified_comp_arm7_boot_code_path = get_full_path(base_folder, subfolders[3], filenames[1]);
-    modified_comp_arm9_gui_code_path = get_full_path(base_folder, subfolders[3], filenames[2]);
-    modified_comp_arm7_wifi_code_path = get_full_path(base_folder, subfolders[3], filenames[3]);
-    modified_comp_data_gfx_path = get_full_path(base_folder, subfolders[3], filenames[4]);
+    // 1-2
+    decrypted_arm9_boot_code_path = get_full_path(base_folder, subfolders[1], filenames[0]);
+    decrypted_arm7_boot_code_path = get_full_path(base_folder, subfolders[1], filenames[1]);
+    // 1-3
+    decompressed_arm9_boot_code_path = get_full_path(base_folder, subfolders[2], filenames[0]);
+    decompressed_arm7_boot_code_path = get_full_path(base_folder, subfolders[2], filenames[1]);
+    decompressed_arm9_gui_code_path = get_full_path(base_folder, subfolders[2], filenames[2]);
+    decompressed_arm7_wifi_code_path = get_full_path(base_folder, subfolders[2], filenames[3]);
+    decompressed_data_gfx_path = get_full_path(base_folder, subfolders[2], filenames[4]);
+    // 2-1
+    modified_unpacked_arm9_boot_code_path = get_full_path(base_folder, subfolders[3], filenames[0]);
+    modified_unpacked_arm7_boot_code_path = get_full_path(base_folder, subfolders[3], filenames[1]);
+    modified_unpacked_arm9_gui_code_path = get_full_path(base_folder, subfolders[3], filenames[2]);
+    modified_unpacked_arm7_wifi_code_path = get_full_path(base_folder, subfolders[3], filenames[3]);
+    modified_unpacked_data_gfx_path = get_full_path(base_folder, subfolders[3], filenames[4]);
+    // 2-2
+    modified_compressed_arm9_boot_code_path = get_full_path(base_folder, subfolders[4], filenames[0]);
+    modified_compressed_arm7_boot_code_path = get_full_path(base_folder, subfolders[4], filenames[1]);
+    modified_compressed_arm9_gui_code_path = get_full_path(base_folder, subfolders[4], filenames[2]);
+    modified_compressed_arm7_wifi_code_path = get_full_path(base_folder, subfolders[4], filenames[3]);
+    modified_compressed_data_gfx_path = get_full_path(base_folder, subfolders[4], filenames[4]);
+    // 2-3
+    modified_encrypted_arm9_boot_code_path = get_full_path(base_folder, subfolders[5], filenames[0]);
+    modified_encrypted_arm7_boot_code_path = get_full_path(base_folder, subfolders[5], filenames[1]);
 
+    // Firmware data
+    u8 *firmware = NULL;
+    size_t firmware_size = 0;
+    FILE *f = NULL;
     // Read firmware file (binary mode)
     f = fopen(firmwareFilename, "rb");
     if (!f) {
@@ -323,14 +381,12 @@ int main(int argc, char **argv) {
     // Get shift values from firmware header
     u8 shift1 = ( ((struct header *)firmware)->shift >> 0 ) & 7;
     u8 shift3 = ( ((struct header *)firmware)->shift >> 6 ) & 7;
-
     // Calculate raw partition offsets from firmware header
-    raw_arm9_boot_code_offset = ((struct header *)firmware)->part1offset * (4 << shift1);
-    raw_arm7_boot_code_offset = ((struct header *)firmware)->part2offset * (4 << shift3);
-    raw_arm9_gui_code_offset = ((struct header *)firmware)->part3offset * 8;
-    raw_arm7_wifi_code_offset = ((struct header *)firmware)->part4offset * 8;
-    raw_data_gfx_offset = ((struct header *)firmware)->part5offset * 8;
-
+    u32 raw_arm9_boot_code_offset = ((struct header *)firmware)->part1offset * (4 << shift1);
+    u32 raw_arm7_boot_code_offset = ((struct header *)firmware)->part2offset * (4 << shift3);
+    u32 raw_arm9_gui_code_offset = ((struct header *)firmware)->part3offset * 8;
+    u32 raw_arm7_wifi_code_offset = ((struct header *)firmware)->part4offset * 8;
+    u32 raw_data_gfx_offset = ((struct header *)firmware)->part5offset * 8;
     // Sort all partition offsets to calculate sizes
     u32 raw_offsets[5] = {
         raw_arm9_boot_code_offset,
@@ -342,13 +398,11 @@ int main(int argc, char **argv) {
     u32 sorted_raw_offsets[5];
     memcpy(sorted_raw_offsets, raw_offsets, sizeof(raw_offsets));
     qsort(sorted_raw_offsets, 5, sizeof(u32), compare_offsets);
-
     // Prepare parameters for partition size calculation
     PartitionSizeParams params = {
         .sorted_offsets = sorted_raw_offsets,
         .firmware_size = firmware_size
     };
-
     // Calculate sizes for all partitions
     raw_arm9_boot_code_size = calculate_partition_size(raw_arm9_boot_code_offset, &params);
     raw_arm7_boot_code_size = calculate_partition_size(raw_arm7_boot_code_offset, &params);
@@ -364,227 +418,336 @@ int main(int argc, char **argv) {
     if (mode == extract) {
         printf("Starting extraction...\n");
 
-        // Extract raw compressed data to 01_raw
+        // Extract raw compressed data to 1-1_raw
+        // 1-1 part1
         raw_arm9_boot_code = firmware + raw_arm9_boot_code_offset;
         f = fopen(raw_arm9_boot_code_path, "wb");
         fwrite(raw_arm9_boot_code, raw_arm9_boot_code_size, 1, f);
         fclose(f);
-
+        // 1-1 part2
         raw_arm7_boot_code = firmware + raw_arm7_boot_code_offset;
         f = fopen(raw_arm7_boot_code_path, "wb");
         fwrite(raw_arm7_boot_code, raw_arm7_boot_code_size, 1, f);
         fclose(f);
-
+        // 1-1 part3
         raw_arm9_gui_code = firmware + raw_arm9_gui_code_offset;
         f = fopen(raw_arm9_gui_code_path, "wb");
         fwrite(raw_arm9_gui_code, raw_arm9_gui_code_size, 1, f);
         fclose(f);
-
+        // 1-1 part4
         raw_arm7_wifi_code = firmware + raw_arm7_wifi_code_offset;
         f = fopen(raw_arm7_wifi_code_path, "wb");
         fwrite(raw_arm7_wifi_code, raw_arm7_wifi_code_size, 1, f);
         fclose(f);
-
+        // 1-1 part5
         raw_data_gfx = firmware + raw_data_gfx_offset;
         f = fopen(raw_data_gfx_path, "wb");
         fwrite(raw_data_gfx, raw_data_gfx_size, 1, f);
         fclose(f);
 
-        // Decrypt and decompress Part1 and Part2 (encrypted LZ77)
-        decompressed_arm9_boot_code_size = decrypt_decompress_part12(raw_arm9_boot_code, &decompressed_arm9_boot_code);
+        // Decrypt Part1 and Part2
+        // 1-2 part1
+        decrypted_arm9_boot_code = malloc(256 * 1024);
+        decrypted_arm9_boot_code_size = raw_arm9_boot_code_size;
+        decrypt_buffer(raw_arm9_boot_code, decrypted_arm9_boot_code, decrypted_arm9_boot_code_size);
+        f = fopen(decrypted_arm9_boot_code_path, "wb");
+        fwrite(decrypted_arm9_boot_code, decrypted_arm9_boot_code_size, 1, f);
+        fclose(f);
+        // 1-2 part2
+        decrypted_arm7_boot_code = malloc(256 * 1024);
+        decrypted_arm7_boot_code_size = raw_arm7_boot_code_size;
+        decrypt_buffer(raw_arm7_boot_code, decrypted_arm7_boot_code, decrypted_arm7_boot_code_size);
+        f = fopen(decrypted_arm7_boot_code_path, "wb");
+        fwrite(decrypted_arm7_boot_code, decrypted_arm7_boot_code_size, 1, f);
+        fclose(f);
+        
+        // Decompress Part1 and Part2 (encrypted LZ77)
+        // 1-3 part1
+        printf("Decompressing Part1...\n");
+        decompressed_arm9_boot_code_size = decompress_part12(decrypted_arm9_boot_code, &decompressed_arm9_boot_code);
         if (decompressed_arm9_boot_code && decompressed_arm9_boot_code_size > 0) {
-            f = fopen(decomp_arm9_boot_code_path, "wb");
+            f = fopen(decompressed_arm9_boot_code_path, "wb");
             fwrite(decompressed_arm9_boot_code, decompressed_arm9_boot_code_size, 1, f);
             fclose(f);
         } else {
             fprintf(stderr, "Failed to decompress ARM9 boot code\n");
         }
-
-        decompressed_arm7_boot_code_size = decrypt_decompress_part12(raw_arm7_boot_code, &decompressed_arm7_boot_code);
+        // 1-3 part2
+        printf("Decompressing Part2...\n");
+        decompressed_arm7_boot_code_size = decompress_part12(decrypted_arm7_boot_code, &decompressed_arm7_boot_code);
+        printf("Decompressed Part2 size: %08X\n", decompressed_arm7_boot_code_size);
         if (decompressed_arm7_boot_code && decompressed_arm7_boot_code_size > 0) {
-            f = fopen(decomp_arm7_boot_code_path, "wb");
+            f = fopen(decompressed_arm7_boot_code_path, "wb");
             fwrite(decompressed_arm7_boot_code, decompressed_arm7_boot_code_size, 1, f);
             fclose(f);
         } else {
-            fprintf(stderr, "Failed to decompress ARM7 boot code\n");
+            fprintf(stderr, "Failed to decompress ARM9 boot code\n");
         }
-
         // Decompress Part3-5 using existing method
+        // 1-3 part3
+        printf("Decompressing Part3...\n");
         decompressed_arm9_gui_code_size = decompress_part345(NULL, raw_arm9_gui_code);
         decompressed_arm9_gui_code = malloc(decompressed_arm9_gui_code_size);
         decompress_part345(decompressed_arm9_gui_code, raw_arm9_gui_code);
-        f = fopen(decomp_arm9_gui_code_path, "wb");
+        f = fopen(decompressed_arm9_gui_code_path, "wb");
         fwrite(decompressed_arm9_gui_code, decompressed_arm9_gui_code_size, 1, f);
         fclose(f);
-
+        // 1-3 part4
         decompressed_arm7_wifi_code_size = decompress_part345(NULL, raw_arm7_wifi_code);
         decompressed_arm7_wifi_code = malloc(decompressed_arm7_wifi_code_size);
         decompress_part345(decompressed_arm7_wifi_code, raw_arm7_wifi_code);
-        f = fopen(decomp_arm7_wifi_code_path, "wb");
+        f = fopen(decompressed_arm7_wifi_code_path, "wb");
         fwrite(decompressed_arm7_wifi_code, decompressed_arm7_wifi_code_size, 1, f);
         fclose(f);
-
+        // 1-3 part5
         decompressed_data_gfx_size = decompress_part345(NULL, raw_data_gfx);
         decompressed_data_gfx = malloc(decompressed_data_gfx_size);
         decompress_part345(decompressed_data_gfx, raw_data_gfx);
-        f = fopen(decomp_data_gfx_path, "wb");
+        f = fopen(decompressed_data_gfx_path, "wb");
         fwrite(decompressed_data_gfx, decompressed_data_gfx_size, 1, f);
         fclose(f);
 
-        // Create modifiable decompressed copies in 03_modified_decompressed
-        u8 *modified_decompressed_arm9_boot_code = malloc(decompressed_arm9_boot_code_size);
-        memcpy(modified_decompressed_arm9_boot_code, decompressed_arm9_boot_code, decompressed_arm9_boot_code_size);
-        f = fopen(modified_decomp_arm9_boot_code_path, "wb");
-        fwrite(modified_decompressed_arm9_boot_code, decompressed_arm9_boot_code_size, 1, f);
+        // Create Modifiable unpacked copies in 2-1_modified_unpacked
+        // 2-1 part1
+        u8 *modified_unpacked_arm9_boot_code = malloc(decompressed_arm9_boot_code_size);
+        memcpy(modified_unpacked_arm9_boot_code, decompressed_arm9_boot_code, decompressed_arm9_boot_code_size);
+        f = fopen(modified_unpacked_arm9_boot_code_path, "wb");
+        fwrite(modified_unpacked_arm9_boot_code, decompressed_arm9_boot_code_size, 1, f);
         fclose(f);
-        free(modified_decompressed_arm9_boot_code);
-
-        u8 *modified_decompressed_arm7_boot_code = malloc(decompressed_arm7_boot_code_size);
-        memcpy(modified_decompressed_arm7_boot_code, decompressed_arm7_boot_code, decompressed_arm7_boot_code_size);
-        f = fopen(modified_decomp_arm7_boot_code_path, "wb");
-        fwrite(modified_decompressed_arm7_boot_code, decompressed_arm7_boot_code_size, 1, f);
+        free(modified_unpacked_arm9_boot_code);
+        // 2-1 part2
+        u8 *modified_unpacked_arm7_boot_code = malloc(decompressed_arm7_boot_code_size);
+        memcpy(modified_unpacked_arm7_boot_code, decompressed_arm7_boot_code, decompressed_arm7_boot_code_size);
+        f = fopen(modified_unpacked_arm7_boot_code_path, "wb");
+        fwrite(modified_unpacked_arm7_boot_code, decompressed_arm7_boot_code_size, 1, f);
         fclose(f);
-        free(modified_decompressed_arm7_boot_code);
-
-        u8 *modified_decompressed_arm9_gui_code_extract = malloc(decompressed_arm9_gui_code_size);
-        memcpy(modified_decompressed_arm9_gui_code_extract, decompressed_arm9_gui_code, decompressed_arm9_gui_code_size);
-        f = fopen(modified_decomp_arm9_gui_code_path, "wb");
-        fwrite(modified_decompressed_arm9_gui_code_extract, decompressed_arm9_gui_code_size, 1, f);
+        free(modified_unpacked_arm7_boot_code);
+        // 2-1 part3
+        u8 *modified_unpacked_arm9_gui_code_extract = malloc(decompressed_arm9_gui_code_size);
+        memcpy(modified_unpacked_arm9_gui_code_extract, decompressed_arm9_gui_code, decompressed_arm9_gui_code_size);
+        f = fopen(modified_unpacked_arm9_gui_code_path, "wb");
+        fwrite(modified_unpacked_arm9_gui_code_extract, decompressed_arm9_gui_code_size, 1, f);
         fclose(f);
-        free(modified_decompressed_arm9_gui_code_extract);
-
-        u8 *modified_decompressed_arm7_wifi_code_extract = malloc(decompressed_arm7_wifi_code_size);
-        memcpy(modified_decompressed_arm7_wifi_code_extract, decompressed_arm7_wifi_code, decompressed_arm7_wifi_code_size);
-        f = fopen(modified_decomp_arm7_wifi_code_path, "wb");
-        fwrite(modified_decompressed_arm7_wifi_code_extract, decompressed_arm7_wifi_code_size, 1, f);
+        free(modified_unpacked_arm9_gui_code_extract);
+        // 2-1 part4
+        u8 *modified_unpacked_arm7_wifi_code_extract = malloc(decompressed_arm7_wifi_code_size);
+        memcpy(modified_unpacked_arm7_wifi_code_extract, decompressed_arm7_wifi_code, decompressed_arm7_wifi_code_size);
+        f = fopen(modified_unpacked_arm7_wifi_code_path, "wb");
+        fwrite(modified_unpacked_arm7_wifi_code_extract, decompressed_arm7_wifi_code_size, 1, f);
         fclose(f);
-        free(modified_decompressed_arm7_wifi_code_extract);
-
-        u8 *modified_decompressed_data_gfx_extract = malloc(decompressed_data_gfx_size);
-        memcpy(modified_decompressed_data_gfx_extract, decompressed_data_gfx, decompressed_data_gfx_size);
-        f = fopen(modified_decomp_data_gfx_path, "wb");
-        fwrite(modified_decompressed_data_gfx_extract, decompressed_data_gfx_size, 1, f);
+        free(modified_unpacked_arm7_wifi_code_extract);
+        // 2-1 part5
+        u8 *modified_unpacked_data_gfx_extract = malloc(decompressed_data_gfx_size);
+        memcpy(modified_unpacked_data_gfx_extract, decompressed_data_gfx, decompressed_data_gfx_size);
+        f = fopen(modified_unpacked_data_gfx_path, "wb");
+        fwrite(modified_unpacked_data_gfx_extract, decompressed_data_gfx_size, 1, f);
         fclose(f);
-        free(modified_decompressed_data_gfx_extract);
+        free(modified_unpacked_data_gfx_extract);
 
         printf("Extraction complete:\n");
         printf("  Raw data saved to: %s/%s/\n", base_folder, subfolders[0]);
-        printf("  Decompressed data saved to: %s/%s/\n", base_folder, subfolders[1]);
-        printf("  Modifiable decompressed copies saved to: %s/%s/\n", base_folder, subfolders[2]);
+        printf("  Decrypted data saved to: %s/%s/\n", base_folder, subfolders[1]);
+        printf("  Decompressed data saved to: %s/%s/\n", base_folder, subfolders[2]);
+        printf("  Modifiable unpacked copies saved to: %s/%s/\n", base_folder, subfolders[3]);
     }
     // -------------------------- Inject Mode --------------------------
     else {
         printf("Starting injection...\n");
-        printf("Warning: Injection mode for Part1 and Part2 is not yet implemented\n");
 
-        // Read modified decompressed files from 03_modified_decompressed
-        f = fopen(modified_decomp_arm9_gui_code_path, "rb");
+        // Read modified unpacked files from 2-1_modified_unpacked
+        // 2-1 part1
+        f = fopen(modified_unpacked_arm9_boot_code_path, "rb");
+        if (!f) { perror("Failed to open modified ARM9 boot code file"); goto cleanup; }
+        fseek(f, 0, SEEK_END);
+        modified_unpacked_arm9_boot_code_size = ftell(f);
+        rewind(f);
+        modified_unpacked_arm9_boot_code = malloc(modified_unpacked_arm9_boot_code_size);
+        fread(modified_unpacked_arm9_boot_code, modified_unpacked_arm9_boot_code_size, 1, f);
+        fclose(f);
+        // 2-1 part2
+        f = fopen(modified_unpacked_arm7_boot_code_path, "rb");
+        if (!f) { perror("Failed to open modified ARM7 boot code file"); goto cleanup; }
+        fseek(f, 0, SEEK_END);
+        modified_unpacked_arm7_boot_code_size = ftell(f);
+        rewind(f);
+        modified_unpacked_arm7_boot_code = malloc(modified_unpacked_arm7_boot_code_size);
+        fread(modified_unpacked_arm7_boot_code, modified_unpacked_arm7_boot_code_size, 1, f);
+        fclose(f);
+        // 2-1 part3
+        f = fopen(modified_unpacked_arm9_gui_code_path, "rb");
         if (!f) { perror("Failed to open modified ARM9 GUI code file"); goto cleanup; }
         fseek(f, 0, SEEK_END);
-        modified_decompressed_arm9_gui_code_size = ftell(f);
+        modified_unpacked_arm9_gui_code_size = ftell(f);
         rewind(f);
-        modified_decompressed_arm9_gui_code = malloc(modified_decompressed_arm9_gui_code_size);
-        fread(modified_decompressed_arm9_gui_code, modified_decompressed_arm9_gui_code_size, 1, f);
+        modified_unpacked_arm9_gui_code = malloc(modified_unpacked_arm9_gui_code_size);
+        fread(modified_unpacked_arm9_gui_code, modified_unpacked_arm9_gui_code_size, 1, f);
         fclose(f);
-
-        f = fopen(modified_decomp_arm7_wifi_code_path, "rb");
+        // 2-1 part4
+        f = fopen(modified_unpacked_arm7_wifi_code_path, "rb");
         if (!f) { perror("Failed to open modified ARM7 WiFi code file"); goto cleanup; }
         fseek(f, 0, SEEK_END);
-        modified_decompressed_arm7_wifi_code_size = ftell(f);
+        modified_unpacked_arm7_wifi_code_size = ftell(f);
         rewind(f);
-        modified_decompressed_arm7_wifi_code = malloc(modified_decompressed_arm7_wifi_code_size);
-        fread(modified_decompressed_arm7_wifi_code, modified_decompressed_arm7_wifi_code_size, 1, f);
+        modified_unpacked_arm7_wifi_code = malloc(modified_unpacked_arm7_wifi_code_size);
+        fread(modified_unpacked_arm7_wifi_code, modified_unpacked_arm7_wifi_code_size, 1, f);
         fclose(f);
-
-        f = fopen(modified_decomp_data_gfx_path, "rb");
+        // 2-1 part5
+        f = fopen(modified_unpacked_data_gfx_path, "rb");
         if (!f) { perror("Failed to open modified graphics data file"); goto cleanup; }
         fseek(f, 0, SEEK_END);
-        modified_decompressed_data_gfx_size = ftell(f);
+        modified_unpacked_data_gfx_size = ftell(f);
         rewind(f);
-        modified_decompressed_data_gfx = malloc(modified_decompressed_data_gfx_size);
-        fread(modified_decompressed_data_gfx, modified_decompressed_data_gfx_size, 1, f);
+        modified_unpacked_data_gfx = malloc(modified_unpacked_data_gfx_size);
+        fread(modified_unpacked_data_gfx, modified_unpacked_data_gfx_size, 1, f);
         fclose(f);
 
-        // Compress modified data for Part3-5
-        compressed_arm9_gui_code = malloc(256 * 1024);
-        compressed_arm9_gui_code_size = compress_part345(compressed_arm9_gui_code, modified_decompressed_arm9_gui_code, modified_decompressed_arm9_gui_code_size);
-        
-        compressed_arm7_wifi_code = malloc(256 * 1024);
-        compressed_arm7_wifi_code_size = compress_part345(compressed_arm7_wifi_code, modified_decompressed_arm7_wifi_code, modified_decompressed_arm7_wifi_code_size);
-        
-        compressed_data_gfx = malloc(256 * 1024);
-        compressed_data_gfx_size = compress_part345(compressed_data_gfx, modified_decompressed_data_gfx, modified_decompressed_data_gfx_size);
+        // Compress Part1-5
+        // 2-2 part1
+        modified_compressed_arm9_boot_code = malloc(256 * 1024);
+        modified_compressed_arm9_boot_code_size = compress_part12(modified_unpacked_arm9_boot_code, &modified_compressed_arm9_boot_code, modified_unpacked_arm9_boot_code_size);
+        //printf("arm9_boot:%08X/%08X\n",modified_compressed_arm9_boot_code_size, modified_unpacked_arm9_boot_code_size);
+        f = fopen(modified_compressed_arm9_boot_code_path, "wb");
+        fwrite(modified_compressed_arm9_boot_code, modified_compressed_arm9_boot_code_size, 1, f);
+        fclose(f);
+        // 2-2 part2
+        modified_compressed_arm7_boot_code = malloc(256 * 1024);
+        modified_compressed_arm7_boot_code_size = compress_part12(modified_unpacked_arm7_boot_code, &modified_compressed_arm7_boot_code, modified_unpacked_arm7_boot_code_size);
+        //printf("arm7_boot:%08X/%08X\n",modified_compressed_arm7_boot_code_size, modified_unpacked_arm7_boot_code_size);
+        f = fopen(modified_compressed_arm7_boot_code_path, "wb");
+        fwrite(modified_compressed_arm7_boot_code, modified_compressed_arm7_boot_code_size, 1, f);
+        fclose(f);
+        // 2-2 part3
+        modified_compressed_arm9_gui_code = malloc(256 * 1024);
+        modified_compressed_arm9_gui_code_size = compress_part345(modified_compressed_arm9_gui_code, modified_unpacked_arm9_gui_code, modified_unpacked_arm9_gui_code_size);
+        f = fopen(modified_compressed_arm9_gui_code_path, "wb");
+        fwrite(modified_compressed_arm9_gui_code, modified_compressed_arm9_gui_code_size, 1, f);
+        fclose(f);
+        // 2-2 part4
+        modified_compressed_arm7_wifi_code = malloc(256 * 1024);
+        modified_compressed_arm7_wifi_code_size = compress_part345(modified_compressed_arm7_wifi_code, modified_unpacked_arm7_wifi_code, modified_unpacked_arm7_wifi_code_size);
+        f = fopen(modified_compressed_arm7_wifi_code_path, "wb");
+        fwrite(modified_compressed_arm7_wifi_code, modified_compressed_arm7_wifi_code_size, 1, f);
+        fclose(f);
+        // 2-2 part5
+        modified_compressed_data_gfx = malloc(256 * 1024);
+        modified_compressed_data_gfx_size = compress_part345(modified_compressed_data_gfx, modified_unpacked_data_gfx, modified_unpacked_data_gfx_size);
+        f = fopen(modified_compressed_data_gfx_path, "wb");
+        fwrite(modified_compressed_data_gfx, modified_compressed_data_gfx_size, 1, f);
+        fclose(f);
+
+        // Encrypt Part1-2
+        // 2-3 part1
+        modified_encrypted_arm9_boot_code_size = align_size(modified_compressed_arm9_boot_code_size, 8);
+        modified_encrypted_arm9_boot_code = malloc(modified_encrypted_arm9_boot_code_size);
+        encrypt_buffer(modified_compressed_arm9_boot_code, modified_encrypted_arm9_boot_code, modified_compressed_arm9_boot_code_size);
+        f = fopen(modified_encrypted_arm9_boot_code_path, "wb");
+        fwrite(modified_encrypted_arm9_boot_code, modified_encrypted_arm9_boot_code_size, 1, f);
+        fclose(f);
+        // 2-3 part2
+        modified_encrypted_arm7_boot_code_size = align_size(modified_compressed_arm7_boot_code_size, 8);
+        modified_encrypted_arm7_boot_code = malloc(modified_encrypted_arm7_boot_code_size);
+        encrypt_buffer(modified_compressed_arm7_boot_code, modified_encrypted_arm7_boot_code, modified_compressed_arm7_boot_code_size);
+        f = fopen(modified_encrypted_arm7_boot_code_path, "wb");
+        fwrite(modified_encrypted_arm7_boot_code, modified_encrypted_arm7_boot_code_size, 1, f);
+        fclose(f);
+
 
         // Calculate 8-byte aligned sizes
-        aligned_arm9_gui_code_size = align_size(compressed_arm9_gui_code_size, ALIGNMENT);
-        aligned_arm7_wifi_code_size = align_size(compressed_arm7_wifi_code_size, ALIGNMENT);
-        aligned_data_gfx_size = align_size(compressed_data_gfx_size, ALIGNMENT);
+        aligned_arm9_boot_code_size = align_size(modified_encrypted_arm9_boot_code_size, 16);
+        aligned_arm7_boot_code_size = align_size(modified_encrypted_arm7_boot_code_size, 16);
+        aligned_arm9_gui_code_size = align_size(modified_compressed_arm9_gui_code_size, 8);
+        aligned_arm7_wifi_code_size = align_size(modified_compressed_arm7_wifi_code_size, 8);
+        aligned_data_gfx_size = align_size(modified_compressed_data_gfx_size, 8);
 
         printf("Compressed sizes (original/aligned):\n");
-        printf("  %s: %" PRIuPTR " / %" PRIuPTR " bytes\n",
-               full_part_names[2], (uintptr_t)compressed_arm9_gui_code_size, (uintptr_t)aligned_arm9_gui_code_size);
-        printf("  %s: %" PRIuPTR " / %" PRIuPTR " bytes\n",
-               full_part_names[3], (uintptr_t)compressed_arm7_wifi_code_size, (uintptr_t)aligned_arm7_wifi_code_size);
-        printf("  %s: %" PRIuPTR " / %" PRIuPTR " bytes\n",
-               full_part_names[4], (uintptr_t)compressed_data_gfx_size, (uintptr_t)aligned_data_gfx_size);
+        printf("  %s: 0x%lX / 0x%lX bytes\n", full_part_names[0], (unsigned long)modified_encrypted_arm9_boot_code_size, (unsigned long)aligned_arm9_boot_code_size);
+        printf("  %s: 0x%lX / 0x%lX bytes\n", full_part_names[1], (unsigned long)modified_encrypted_arm7_boot_code_size, (unsigned long)aligned_arm7_boot_code_size);
+        printf("  %s: 0x%lX / 0x%lX bytes\n", full_part_names[2], (unsigned long)modified_compressed_arm9_gui_code_size, (unsigned long)aligned_arm9_gui_code_size);
+        printf("  %s: 0x%lX / 0x%lX bytes\n", full_part_names[3], (unsigned long)modified_compressed_arm7_wifi_code_size, (unsigned long)aligned_arm7_wifi_code_size);
+        printf("  %s: 0x%lX / 0x%lX bytes\n", full_part_names[4], (unsigned long)modified_compressed_data_gfx_size, (unsigned long)aligned_data_gfx_size);
 
         // Create aligned buffers with zero-padding
+        u8 *aligned_arm9_boot_code = malloc(aligned_arm9_boot_code_size);
+        u8 *aligned_arm7_boot_code = malloc(aligned_arm7_boot_code_size);
         u8 *aligned_arm9_gui_code = malloc(aligned_arm9_gui_code_size);
         u8 *aligned_arm7_wifi_code = malloc(aligned_arm7_wifi_code_size);
         u8 *aligned_data_gfx = malloc(aligned_data_gfx_size);
 
         // Copy compressed data and pad with zeros
-        memcpy(aligned_arm9_gui_code, compressed_arm9_gui_code, compressed_arm9_gui_code_size);
-        memset(aligned_arm9_gui_code + compressed_arm9_gui_code_size, 0, aligned_arm9_gui_code_size - compressed_arm9_gui_code_size);
-        
-        memcpy(aligned_arm7_wifi_code, compressed_arm7_wifi_code, compressed_arm7_wifi_code_size);
-        memset(aligned_arm7_wifi_code + compressed_arm7_wifi_code_size, 0, aligned_arm7_wifi_code_size - compressed_arm7_wifi_code_size);
-        
-        memcpy(aligned_data_gfx, compressed_data_gfx, compressed_data_gfx_size);
-        memset(aligned_data_gfx + compressed_data_gfx_size, 0, aligned_data_gfx_size - compressed_data_gfx_size);
+        memcpy(aligned_arm9_boot_code, modified_encrypted_arm9_boot_code, modified_encrypted_arm9_boot_code_size);
+        memset(aligned_arm9_boot_code + modified_encrypted_arm9_boot_code_size, 0, aligned_arm9_boot_code_size - modified_encrypted_arm9_boot_code_size);
 
-        // Save aligned compressed data
-        f = fopen(modified_comp_arm9_gui_code_path, "wb");
-        fwrite(aligned_arm9_gui_code, aligned_arm9_gui_code_size, 1, f);
-        fclose(f);
-        
-        f = fopen(modified_comp_arm7_wifi_code_path, "wb");
-        fwrite(aligned_arm7_wifi_code, aligned_arm7_wifi_code_size, 1, f);
-        fclose(f);
-        
-        f = fopen(modified_comp_data_gfx_path, "wb");
-        fwrite(aligned_data_gfx, aligned_data_gfx_size, 1, f);
-        fclose(f);
+        memcpy(aligned_arm7_boot_code, modified_encrypted_arm7_boot_code, modified_encrypted_arm7_boot_code_size);
+        memset(aligned_arm7_boot_code + modified_encrypted_arm7_boot_code_size, 0, aligned_arm7_boot_code_size - modified_encrypted_arm7_boot_code_size);
 
-        // Inject aligned data into firmware at original raw offsets
-        memcpy(firmware + raw_arm9_gui_code_offset, aligned_arm9_gui_code, aligned_arm9_gui_code_size);
-        memcpy(firmware + raw_arm7_wifi_code_offset, aligned_arm7_wifi_code, aligned_arm7_wifi_code_size);
-        memcpy(firmware + raw_data_gfx_offset, aligned_data_gfx, aligned_data_gfx_size);
+        memcpy(aligned_arm9_gui_code, modified_compressed_arm9_gui_code, modified_compressed_arm9_gui_code_size);
+        memset(aligned_arm9_gui_code + modified_compressed_arm9_gui_code_size, 0, aligned_arm9_gui_code_size - modified_compressed_arm9_gui_code_size);
+        
+        memcpy(aligned_arm7_wifi_code, modified_compressed_arm7_wifi_code, modified_compressed_arm7_wifi_code_size);
+        memset(aligned_arm7_wifi_code + modified_compressed_arm7_wifi_code_size, 0, aligned_arm7_wifi_code_size - modified_compressed_arm7_wifi_code_size);
+        
+        memcpy(aligned_data_gfx, modified_compressed_data_gfx, modified_compressed_data_gfx_size);
+        memset(aligned_data_gfx + modified_compressed_data_gfx_size, 0, aligned_data_gfx_size - modified_compressed_data_gfx_size);
 
-        // Update CRC checksums
-        ((struct header *)firmware)->part34crc = swiCRC(0xffff, 
-            (u32*)(firmware + raw_arm9_gui_code_offset), compressed_arm9_gui_code_size);
-        ((struct header *)firmware)->part34crc = swiCRC(((struct header *)firmware)->part34crc, 
-            (u32*)(firmware + raw_arm7_wifi_code_offset), compressed_arm7_wifi_code_size);
-        ((struct header *)firmware)->part5crc = swiCRC(0xffff, 
-            (u32*)(firmware + raw_data_gfx_offset), compressed_data_gfx_size);
+        // Calculate new partition offsets starting from the earliest original address
+        u32 base_offset = sorted_raw_offsets[0];  // Use the earliest original partition address as base
+        u32 current_offset = base_offset;
+        // New offsets array ordered as part1-5
+        u32 new_offsets[5];
+        
+        // Calculate sequential offsets for each partition in order
+        new_offsets[0] = current_offset;  // part1 (arm9_boot)
+        current_offset += aligned_arm9_boot_code_size;
+        new_offsets[1] = current_offset;  // part2 (arm7_boot)
+        current_offset += aligned_arm7_boot_code_size;
+        new_offsets[2] = current_offset;  // part3 (arm9_gui)
+        current_offset += aligned_arm9_gui_code_size;
+        new_offsets[3] = current_offset;  // part4 (arm7_wifi)
+        current_offset += aligned_arm7_wifi_code_size;
+        new_offsets[4] = current_offset;  // part5 (data_gfx)
+        
+        // Inject data to newly calculated offset positions
+        memcpy(firmware + new_offsets[0], aligned_arm9_boot_code, aligned_arm9_boot_code_size);
+        memcpy(firmware + new_offsets[1], aligned_arm7_boot_code, aligned_arm7_boot_code_size);
+        memcpy(firmware + new_offsets[2], aligned_arm9_gui_code, aligned_arm9_gui_code_size);
+        memcpy(firmware + new_offsets[3], aligned_arm7_wifi_code, aligned_arm7_wifi_code_size);
+        memcpy(firmware + new_offsets[4], aligned_data_gfx, aligned_data_gfx_size);
+
+        // Update CRC checksums in part1-5 order
+        ((struct header *)firmware)->part12crc = swiCRC(0xffff, (u32*)(firmware + new_offsets[0]), modified_encrypted_arm9_boot_code_size);
+        ((struct header *)firmware)->part12crc = swiCRC(((struct header *)firmware)->part12crc, (u32*)(firmware + new_offsets[1]), modified_encrypted_arm7_boot_code_size);
+        ((struct header *)firmware)->part34crc = swiCRC(0xffff, (u32*)(firmware + new_offsets[2]), modified_compressed_arm9_gui_code_size);
+        ((struct header *)firmware)->part34crc = swiCRC(((struct header *)firmware)->part34crc, (u32*)(firmware + new_offsets[3]), modified_compressed_arm7_wifi_code_size);
+        ((struct header *)firmware)->part5crc = swiCRC(0xffff, (u32*)(firmware + new_offsets[4]), modified_compressed_data_gfx_size);
+        
+        // Write new calculated offsets to firmware header using original shift values
+        ((struct header *)firmware)->part1offset = new_offsets[0] / (4 << shift1);
+        ((struct header *)firmware)->part2offset = new_offsets[1] / (4 << shift3);
+        ((struct header *)firmware)->part3offset = new_offsets[2] / 8;
+        ((struct header *)firmware)->part4offset = new_offsets[3] / 8;
+        ((struct header *)firmware)->part5offset = new_offsets[4] / 8;
+
+        // Print new injection addresses for verification
+        printf("\nNew injection addresses (offsets in firmware):\n");
+        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[0], new_offsets[0]);
+        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[1], new_offsets[1]);
+        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[2], new_offsets[2]);
+        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[3], new_offsets[3]);
+        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[4], new_offsets[4]);
 
         // Save modified firmware
         f = fopen(output_firmwareFilename, "wb");
         fwrite(firmware, firmware_size, 1, f);
         fclose(f);
 
-        // Print injection addresses with platform-specific format specifier
-        printf("\nInjection addresses (raw offsets in firmware):\n");
-        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[2], raw_arm9_gui_code_offset);
-        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[3], raw_arm7_wifi_code_offset);
-        printf("  %s: 0x%06" PRI_U32_HEX "\n", full_part_names[4], raw_data_gfx_offset);
-
         printf("\nInjection complete:\n");
-        printf("  Aligned compressed data saved to: %s/%s/\n", base_folder, subfolders[3]);
+        printf("  Modified compressed data saved to: %s/%s/\n", base_folder, subfolders[4]);
+        printf("  Modified encrypted data saved to: %s/%s/\n", base_folder, subfolders[5]);
         printf("  New firmware saved to: %s\n", output_firmwareFilename);
 
         // Free aligned buffers
+        free(aligned_arm9_boot_code);
+        free(aligned_arm7_boot_code);
         free(aligned_arm9_gui_code);
         free(aligned_arm7_wifi_code);
         free(aligned_data_gfx);
@@ -593,31 +756,48 @@ int main(int argc, char **argv) {
 // Cleanup section
 cleanup:
     // Free all path strings
+    // 1-1
     free(raw_arm9_boot_code_path);
     free(raw_arm7_boot_code_path);
     free(raw_arm9_gui_code_path);
     free(raw_arm7_wifi_code_path);
     free(raw_data_gfx_path);
-    
-    free(decomp_arm9_boot_code_path);
-    free(decomp_arm7_boot_code_path);
-    free(decomp_arm9_gui_code_path);
-    free(decomp_arm7_wifi_code_path);
-    free(decomp_data_gfx_path);
-    
-    free(modified_decomp_arm9_boot_code_path);
-    free(modified_decomp_arm7_boot_code_path);
-    free(modified_decomp_arm9_gui_code_path);
-    free(modified_decomp_arm7_wifi_code_path);
-    free(modified_decomp_data_gfx_path);
-    
-    free(modified_comp_arm9_boot_code_path);
-    free(modified_comp_arm7_boot_code_path);
-    free(modified_comp_arm9_gui_code_path);
-    free(modified_comp_arm7_wifi_code_path);
-    free(modified_comp_data_gfx_path);
+    // 1-2
+    free(decrypted_arm9_boot_code_path);
+    free(decrypted_arm7_boot_code_path);
+    // 1-3
+    free(decompressed_arm9_boot_code_path);
+    free(decompressed_arm7_boot_code_path);
+    free(decompressed_arm9_gui_code_path);
+    free(decompressed_arm7_wifi_code_path);
+    free(decompressed_data_gfx_path);
+    // 2-1
+    free(modified_unpacked_arm9_boot_code_path);
+    free(modified_unpacked_arm7_boot_code_path);
+    free(modified_unpacked_arm9_gui_code_path);
+    free(modified_unpacked_arm7_wifi_code_path);
+    free(modified_unpacked_data_gfx_path);
+    // 2-2
+    free(modified_compressed_arm9_boot_code_path);
+    free(modified_compressed_arm7_boot_code_path);
+    free(modified_compressed_arm9_gui_code_path);
+    free(modified_compressed_arm7_wifi_code_path);
+    free(modified_compressed_data_gfx_path);
+    // 2-3
+    free(modified_encrypted_arm9_boot_code_path);
+    free(modified_encrypted_arm7_boot_code_path);
     
     // Free all data buffers
+    // 1-1
+    free(raw_arm9_boot_code);
+    free(raw_arm7_boot_code);
+    free(raw_arm9_gui_code);
+    free(raw_arm7_wifi_code);
+    free(raw_data_gfx);
+    // 1-2
+    free(decrypted_arm9_boot_code);
+    free(decrypted_arm7_boot_code);
+    // 1-3
     free(decompressed_arm9_boot_code);
     free(decompressed_arm7_boot_code);
     free(decompressed_arm9_gui_code);
@@ -626,12 +806,21 @@ cleanup:
     
     // Free variables used only in injection mode
     if (mode == inject) {
-        free(modified_decompressed_arm9_gui_code);
-        free(modified_decompressed_arm7_wifi_code);
-        free(modified_decompressed_data_gfx);
-        free(compressed_arm9_gui_code);
-        free(compressed_arm7_wifi_code);
-        free(compressed_data_gfx);
+        // 2-1
+        free(modified_unpacked_arm9_boot_code);
+        free(modified_unpacked_arm7_boot_code);
+        free(modified_unpacked_arm9_gui_code);
+        free(modified_unpacked_arm7_wifi_code);
+        free(modified_unpacked_data_gfx);
+        // 2-2
+        free(modified_compressed_arm9_boot_code);
+        free(modified_compressed_arm7_boot_code);
+        free(modified_compressed_arm9_gui_code);
+        free(modified_compressed_arm7_wifi_code);
+        free(modified_compressed_data_gfx);
+        // 2-3
+        free(modified_encrypted_arm9_boot_code);
+        free(modified_encrypted_arm7_boot_code);
     }
     
     // Free main firmware buffer
@@ -642,4 +831,3 @@ cleanup:
     
     return 0;
 }
-    

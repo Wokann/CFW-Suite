@@ -22,5 +22,6 @@ typedef struct _ARGS_VPK_DECOMPRESS ARGS_VPK_DECOMPRESS;
 
 u32 decompress_part345(u8 *dst, u8 *src);
 u32 compress_part345(u8 *dst, u8 *src, u32 size);
-int decrypt_decompress_part12(u8* src, u8** dest);
-int decompress_part12 (u8* src, u8* *dest);
+
+int decompress_part12(u8* src, u8** dest);
+int compress_part12(u8 *src, u8 **dest, int src_size);

@@ -6,8 +6,6 @@
 #include "compression.h"
 #include "bitstream.h"
 #include "tree.h"
-#include "get_encrypted_data.h"
-#include "get_normal_data.h"
 #include "lz77.h"
 
 #define LZ_SIZE_MIN 3
@@ -390,22 +388,12 @@ u32 compress_part345(u8 *dst, u8 *src, u32 size) {
 }
 
 
-/**
- * Decrypts and decompresses Part1 and Part2 data (ARM9/ARM7 boot code)
- * @param src Pointer to the encrypted/compressed source data
- * @param dest Pointer to store address of decompressed data buffer
- * @return Size of decompressed data, 0 on failure
- */
-int decrypt_decompress_part12(u8* src, u8** dest) {
-    GET_DATA get_data = get_encrypted_data;
+int decompress_part12(u8* src, u8** dest) {
 
-    get_data.set_address(src);
-
-    // Extract compression type and decompressed size from header
-    int compression_type = (get_data.get_u8() & 0xF0) >> 4;
-    int decompressed_size = get_data.get_u8();
-    decompressed_size |= get_data.get_u8() << 8;
-    decompressed_size |= get_data.get_u8() << 16;
+    int compression_type = (src[0] & 0xF0) >> 4;
+    int decompressed_size = src[1];
+    decompressed_size |= src[2] << 8;
+    decompressed_size |= src[3] << 16;
 
     // Allocate memory for decompressed data
     *dest = (u8*)malloc(decompressed_size);
@@ -413,51 +401,34 @@ int decrypt_decompress_part12(u8* src, u8** dest) {
         perror("Failed to allocate memory for decompression");
         return 0;
     }
-
     // Decompress based on detected compression type
     switch (compression_type) {
         case COMPRESSION_TYPE_LZ77:
-            Decompress_LZ77(get_data, *dest, decompressed_size);
+			DecompressLZ77(src,*dest, decompressed_size);
             break;
         default:
             printf("Cannot decompress type %d\n", compression_type);
             free(*dest);
-            *dest = NULL;
-            decompressed_size = 0;
-            break;
+            return 0;
     }
 
     return decompressed_size;
 }
 
-
-int decompress_part12 (u8* src, u8* *dest) {
-	GET_DATA get_data = get_normal_data;
-
-	get_data.set_address (src);
-
-	int compression_type = (get_data.get_u8() & 0xF0) >> 4;
-	int decompressed_size = get_data.get_u8();
-	decompressed_size |= get_data.get_u8() << 8;
-	decompressed_size |= get_data.get_u8() << 16;
-
-	*dest = (u8*) malloc (decompressed_size);
+int compress_part12(u8 *src, u8 **dest, int src_size) {
+    *dest = (u8*)malloc(src_size);
     if (!*dest) {
-        perror("Failed to allocate memory for decompression");
+        perror("Failed to allocate memory for compression");
+        return 0;
+    }
+    // LZ77 compress
+	printf("compressing\n");
+    int compressed_size = CompressLZ77(src, *dest, src_size);
+    if (compressed_size <= 0) {
+        free(*dest);
         return 0;
     }
 
-	switch (compression_type) {
-		case COMPRESSION_TYPE_LZ77:
-			Decompress_LZ77 (get_data, *dest, decompressed_size);
-			break;
-		default:
-			printf ("CANNOT DECOMPRESS TYPE %d\n", compression_type);
-            free(*dest);
-            *dest = NULL;
-			decompressed_size = 0;
-			break;
-	}
-
-	return decompressed_size;
+    return compressed_size;
 }
+

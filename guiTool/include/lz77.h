@@ -23,10 +23,9 @@ fwunpack
 #define LZ77_H
 
 #include "types.h"
-#include "get_data.h"
 
 #define COMPRESSION_TYPE_LZ77 1
 
-void Decompress_LZ77(GET_DATA get_data, u8* dest, int dest_size);
-
+int CompressLZ77(const unsigned char *InBuf, unsigned char *OutBuf, int InSize);
+void DecompressLZ77(const unsigned char *InBuf, unsigned char *OutBuf, int OutSize);
 #endif

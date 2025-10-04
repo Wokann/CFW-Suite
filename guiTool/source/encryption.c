@@ -107,3 +107,40 @@ void init_keycode (u32 idcode, u32 level, u32 modulo) {
 	*((u32*)&keycode[8]) = *((u32*)&keycode[8]) / 2;
 	if (level >= 3) apply_keycode (modulo);	// third apply (optional)
 }
+
+
+void decrypt_buffer(const u8* src, u8* dest, size_t src_size) {
+    size_t pad = (src_size % 8) ? (8 - (src_size % 8)) : 0;
+    size_t total = src_size + pad;
+    u8 block[8];
+
+    for (size_t i = 0; i < total; i += 8) {
+        if (i + 8 <= src_size) {
+            memcpy(block, src + i, 8);
+        } else {
+            size_t remain = src_size - i;
+            memcpy(block, src + i, remain);
+            memset(block + remain, 0, 8 - remain);
+        }
+        crypt_64bit_down(block);
+        memcpy(dest + i, block, 8);
+    }
+}
+
+void encrypt_buffer(const u8* src, u8* dest, size_t src_size) {
+    size_t pad = (src_size % 8) ? (8 - (src_size % 8)) : 0;
+    size_t total = src_size + pad;
+    u8 block[8];
+
+    for (size_t i = 0; i < total; i += 8) {
+        if (i + 8 <= src_size) {
+            memcpy(block, src + i, 8);
+        } else {
+            size_t remain = src_size - i;
+            memcpy(block, src + i, remain);
+            memset(block + remain, 0, 8 - remain);
+        }
+        crypt_64bit_up(block);
+        memcpy(dest + i, block, 8);
+    }
+}
