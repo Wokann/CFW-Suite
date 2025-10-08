@@ -23,5 +23,7 @@ typedef struct _ARGS_VPK_DECOMPRESS ARGS_VPK_DECOMPRESS;
 u32 decompress_part345(u8 *dst, u8 *src);
 u32 compress_part345(u8 *dst, u8 *src, u32 size);
 
-int decompress_part12(u8* src, u8** dest);
-int compress_part12(u8 *src, u8 **dest, int src_size);
+#define COMPRESSION_TYPE_LZ77 1
+u32 decompressLZ77(u8 *dst,u8 *src);
+u32 getCompressedLZ77Size(u8 *src);
+u32 compressLZ77(u8 *dst, u8 *src, u32 size);
