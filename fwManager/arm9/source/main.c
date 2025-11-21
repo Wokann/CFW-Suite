@@ -3,6 +3,7 @@
 #include <nds.h>
 #include <fat.h>
 
+#include "crc.h"
 #include "firmware.h"
 #include "fileSelector.h"
 
@@ -316,6 +317,67 @@ FlashOption:
 			for(int i = 0; i < 0x200; i++) {
 				firmware[i + newsize - 0x200] = originalFirmware[i + originalsize - 0x200];
 			}
+			// fix language
+			u8 newConsole = firmware[0x1D];
+			switch (newConsole)
+			{
+				case 0x43:
+				case 0x63:
+					// international/ique/kor -> ique
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// ique tag (0x74-0x77)
+						firmware[i + newsize - 0x200 + 0x74] = 0x01;
+						u8 normalLanguage = firmware[i + newsize - 0x200 + 0x64];
+						u8 extendedLanguage = firmware[i + newsize - 0x200 + 0x75];
+						if (extendedLanguage == 6 || extendedLanguage == 7 || normalLanguage ==1)
+							firmware[i + newsize - 0x200 + 0x75] = 6;
+						else
+							firmware[i + newsize - 0x200 + 0x75] = normalLanguage;
+						firmware[i + newsize - 0x200 + 0x76] = 0x7E;	//ique flag 0x007E
+						firmware[i + newsize - 0x200 + 0x77] = 0x00;
+						// dummy pad (0x78-0xFD)
+						for (int j = 0; j < (0xFE - 0x78); j++){
+							firmware[i + newsize - 0x200 + 0x78 + j] = 0xFF;
+						}
+						// calulate crc (0xFE-0xFF)
+						u16 crc = swiCRC(0xffff,(u32 *)&firmware[i + newsize - 0x200 + 0x74],(0xFE - 0x74));
+						firmware[i + newsize - 0x200 + 0xFE] = crc & 0xFF;
+						firmware[i + newsize - 0x200 + 0xFF] = (crc >> 8) & 0xFF;
+					}
+					break;
+				case 0x35:
+					// international/ique/kor -> kor
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// kor tag (0x74-0x77)
+						firmware[i + newsize - 0x200 + 0x74] = 0x01;
+						u8 normalLanguage = firmware[i + newsize - 0x200 + 0x64];
+						u8 extendedLanguage = firmware[i + newsize - 0x200 + 0x75];
+						if (extendedLanguage == 6 || extendedLanguage == 7 || normalLanguage ==1)
+							firmware[i + newsize - 0x200 + 0x75] = 7;
+						else
+							firmware[i + newsize - 0x200 + 0x75] = normalLanguage;
+						firmware[i + newsize - 0x200 + 0x76] = 0xAF;	//kor flag 0x00AF
+						firmware[i + newsize - 0x200 + 0x77] = 0x00;
+						// dummy pad (0x78-0xFD)
+						for (int j = 0; j < (0xFE - 0x78); j++){
+							firmware[i + newsize - 0x200 + 0x78 + j] = 0xFF;
+						}
+						// calulate crc (0xFE-0xFF)
+						u16 crc = swiCRC(0xffff,(u32 *)&firmware[i + newsize - 0x200 + 0x74],(0xFE - 0x74));
+						firmware[i + newsize - 0x200 + 0xFE] = crc & 0xFF;
+						firmware[i + newsize - 0x200 + 0xFF] = (crc >> 8) & 0xFF;
+					}
+					break;
+				default:
+					// international/ique/kor -> international
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// dummy pad (0x74-0xFF)
+						for (int j = 0; j < (0x100 - 0x74); j++){
+							firmware[i + newsize - 0x200 + 0x74 + j] = 0xFF;
+						}
+					}
+					break;
+			}
 		}
 		address = 0;
 		endAddress = newsize;
@@ -348,6 +410,67 @@ FlashOption:
 		if (selectedOptions & OPTION_FLASH_USER_SETTINGS) {
 			for(int i = 0; i < 0x200; i++) {
 				originalFirmware[i + originalsize - 0x200] = firmware[i + newsize - 0x200];
+			}
+			// fix language
+			u8 originalConsole =  originalFirmware[0x1D];
+			switch (originalConsole)
+			{
+				case 0x43:
+				case 0x63:
+					// international/ique/kor -> ique
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// ique tag (0x74-0x77)
+						originalFirmware[i + originalsize - 0x200 + 0x74] = 0x01;
+						u8 normalLanguage = originalFirmware[i + originalsize - 0x200 + 0x64];
+						u8 extendedLanguage = originalFirmware[i + originalsize - 0x200 + 0x75];
+						if (extendedLanguage == 6 || extendedLanguage == 7 || normalLanguage ==1)
+							originalFirmware[i + originalsize - 0x200 + 0x75] = 6;
+						else
+							originalFirmware[i + originalsize - 0x200 + 0x75] = normalLanguage;
+						originalFirmware[i + originalsize - 0x200 + 0x76] = 0x7E;	//ique flag 0x007E
+						originalFirmware[i + originalsize - 0x200 + 0x77] = 0x00;
+						// dummy pad (0x78-0xFD)
+						for (int j = 0; j < (0xFE - 0x78); j++){
+							originalFirmware[i + originalsize - 0x200 + 0x78 + j] = 0xFF;
+						}
+						// calulate crc (0xFE-0xFF)
+						u16 crc = swiCRC(0xffff,(u32 *)&originalFirmware[i + originalsize - 0x200 + 0x74],(0xFE - 0x74));
+						originalFirmware[i + originalsize - 0x200 + 0xFE] = crc & 0xFF;
+						originalFirmware[i + originalsize - 0x200 + 0xFF] = (crc >> 8) & 0xFF;
+					}
+					break;
+				case 0x35:
+					// international/ique/kor -> kor
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// kor tag (0x74-0x77)
+						originalFirmware[i + originalsize - 0x200 + 0x74] = 0x01;
+						u8 normalLanguage = originalFirmware[i + originalsize - 0x200 + 0x64];
+						u8 extendedLanguage = originalFirmware[i + originalsize - 0x200 + 0x75];
+						if (extendedLanguage == 6 || extendedLanguage == 7 || normalLanguage ==1)
+							originalFirmware[i + originalsize - 0x200 + 0x75] = 7;
+						else
+							originalFirmware[i + originalsize - 0x200 + 0x75] = normalLanguage;
+						originalFirmware[i + originalsize - 0x200 + 0x76] = 0xAF;	//kor flag 0x00AF
+						originalFirmware[i + originalsize - 0x200 + 0x77] = 0x00;
+						// dummy pad (0x78-0xFD)
+						for (int j = 0; j < (0xFE - 0x78); j++){
+							originalFirmware[i + originalsize - 0x200 + 0x78 + j] = 0xFF;
+						}
+						// calulate crc (0xFE-0xFF)
+						u16 crc = swiCRC(0xffff,(u32 *)&originalFirmware[i + originalsize - 0x200 + 0x74],(0xFE - 0x74));
+						originalFirmware[i + originalsize - 0x200 + 0xFE] = crc & 0xFF;
+						originalFirmware[i + originalsize - 0x200 + 0xFF] = (crc >> 8) & 0xFF;
+					}
+					break;
+				default:
+					// international/ique/kor -> international
+					for(int i = 0; i < 0x200; i += 0x100) {
+						// dummy pad (0x74-0xFF)
+						for (int j = 0; j < (0x100 - 0x74); j++){
+							originalFirmware[i + originalsize - 0x200 + 0x74 + j] = 0xFF;
+						}
+					}
+					break;
 			}
 			address = MIN(originalsize - 0x200, address);
 			endAddress = MAX(originalsize, endAddress);
