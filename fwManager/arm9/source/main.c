@@ -499,11 +499,11 @@ FlashOption:
 	}
 	*/
 
-	/*
+	
 	//Check console
 	unsigned int Hconsole = readPM(4);
 			printf("\nconsloe:%08X\n", Hconsole);
-	if(((struct header *)firmware)->console == 0x57 ||    //DSi
+	/*if(((struct header *)firmware)->console == 0x57 ||    //DSi
 		(((struct header *)firmware)->console != 0xFF &&  //DS phat
 		 ((struct header *)firmware)->console != 0x20 &&  //DS lite
 		 ((struct header *)firmware)->console != 0x43 &&  //iQue phat
@@ -512,8 +512,8 @@ FlashOption:
 		printf(" This firmware is not for this console!\n");
 		printf(" This firmware is for type %d (%s)\n", ((struct header *)firmware)->console, ((struct header *)firmware)->console == 0x57 ? "DSi" : "Unknown");
 		while(1) swiWaitForVBlank();
-	}
-	*/
+	}*/
+	
 	// To do: check boot CRC is correct
 	/*
 	unsigned short crc;
