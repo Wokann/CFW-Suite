@@ -65,20 +65,25 @@ unsigned char PMwrite(unsigned char channel, unsigned char data) {
 void flash(unsigned char *firmware, unsigned int address, unsigned int endAddress) {
 	unsigned int i = address;
 	int result = 0;
+	int lastPercent = -1;
+	int currentPercent = 0;
 	while(i < endAddress) {
 		result = writeFirmwarePage(i, firmware + i);
-		if(!result) {
+		if(!result) {	//data not same
 			i += 256;
-			fifoSendValue32(FIFO_USER_02, i);
-			wait(5);
 		}
-		else if (result == 2){
+		else if (result == 2){ //data same
 			i += 256;
-			fifoSendValue32(FIFO_USER_02, i);
-			wait(1);
 		}
 		else {
 			wait(5);
+		}
+
+		currentPercent = (int)((double)i / endAddress * 100);
+		if (currentPercent >= 0 && currentPercent > lastPercent) {
+			fifoSendValue32(FIFO_USER_02, i);
+			lastPercent = currentPercent;
+			wait(1);
 		}
 	}
 }
