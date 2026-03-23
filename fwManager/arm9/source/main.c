@@ -115,6 +115,7 @@ FirmwareSelect:
 	}
 
 FlashOption:
+	;
 	// 定义烧录选项标志位
 	typedef enum {
 		OPTION_RESERVE_WIFI_CALIBRATION = (1 << 0),   // 保留wifi校准数据
