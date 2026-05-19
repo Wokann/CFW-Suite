@@ -315,12 +315,24 @@ FlashOption:
 			for(int i = 0; i <= (0x163 - 0x2A); i++) {
 				firmware[i + 0x2A] = originalFirmware[i + 0x2A];
 			}
+			u16 crc;
+			// calulate crc (0x2A-0x2B)
+			crc = swiCRC(0x0000,(u32 *)&firmware[0x2C],0x138);
+			firmware[0x2A] = crc & 0xFF;
+			firmware[0x2B] = (crc >> 8) & 0xFF;
 		}
 		
 		// 保留wifi设置数据
 		if (selectedOptions & OPTION_RESERVE_WIFI_SETTINGS) {
-			for(int i = 0; i < 0x400; i++) {
+			for(int i = 0; i < 0x300; i++) {
 				firmware[i + newsize - 0x600] = originalFirmware[i + originalsize - 0x600];
+			}
+			for(int i = 0; i < 0x300; i += 0x100) {
+				u16 crc;
+				// calulate crc (0xFE-0xFF)
+				crc = swiCRC(0x0000,(u32 *)&firmware[i + newsize - 0x600],0xFE);
+				firmware[i + newsize - 0x600 + 0xFE] = crc & 0xFF;
+				firmware[i + newsize - 0x600 + 0xFF] = (crc >> 8) & 0xFF;
 			}
 		}
 		
@@ -451,17 +463,29 @@ FlashOption:
 			for(int i = 0; i <= (0x163 - 0x2A); i++) {
 				originalFirmware[i + 0x2A] = firmware[i + 0x2A];
 			}
+			u16 crc;
+			// calulate crc (0x2A-0x2B)
+			crc = swiCRC(0x0000,(u32 *)&originalFirmware[0x2C],0x138);
+			originalFirmware[0x2A] = crc & 0xFF;
+			originalFirmware[0x2B] = (crc >> 8) & 0xFF;
 			address = MIN(0, address);
 			endAddress = MAX(0x200, endAddress);
 		}
 		
 		// 导入wifi设置数据
 		if (selectedOptions & OPTION_FLASH_WIFI_SETTINGS) {
-			for(int i = 0; i < 0x400; i++) {
+			for(int i = 0; i < 0x300; i++) {
 				originalFirmware[i + originalsize - 0x600] = firmware[i + newsize - 0x600];
 			}
+			for(int i = 0; i < 0x300; i += 0x100) {
+				u16 crc;
+				// calulate crc (0xFE-0xFF)
+				crc = swiCRC(0x0000,(u32 *)&originalFirmware[i + originalsize - 0x600],0xFE);
+				originalFirmware[i + originalsize - 0x600 + 0xFE] = crc & 0xFF;
+				originalFirmware[i + originalsize - 0x600 + 0xFF] = (crc >> 8) & 0xFF;
+			}
 			address = MIN(originalsize - 0x600, address);
-			endAddress = MAX(originalsize - 0x200, endAddress);
+			endAddress = MAX(originalsize - 0x300, endAddress);
 		}
 		
 		// 导入用户设置数据
